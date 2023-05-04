@@ -1,0 +1,16 @@
+{
+    "name": "cloud-fermyon",
+    "description": "The Fermyon Cloud Plugin",
+    "homepage": "https://github.com/fermyon/cloud-plugin",
+    "version": "0.1.0",
+    "spinCompatibility": ">=0.9",
+    "license": "Apache-2.0",
+    "packages": [
+      {
+        "os": "macos",
+        "arch": "aarch64",
+        "url": "file:///path/to/cloud-plugin/plugin/cloud.tar.gz",
+        "sha256": "2f2df6d91421879bc87f3292eb6ac05ed6d8fa8325803372e3614b6545f9abe4"
+      }
+    ]
+  }
