@@ -1,0 +1,219 @@
+name: Release
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  reset_canary_release: 
+    name: Delete and create Canary Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Fetch tags
+        run: git fetch origin --tags
+
+      - name: 'Check if canary tag exists'
+        id: canaryExists
+        shell: bash
+        run: git show-ref --tags --verify --quiet -- "refs/tags/canary" && echo "::set-output name=canaryExists::0" || echo "::set-output name=canaryExists::1"
+
+      - name: Delete canary tag
+        if: steps.canaryExists.outputs.canaryExists == 0
+        uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: canary
+
+      - name: Recreate canary tag and release
+        uses: ncipollo/release-action@v1.10.0
+        with:
+          tag: canary
+          allowUpdates: true
+          prerelease: true
+          body: |
+            This is a "canary" release of the most recent commits on our main branch. Canary is **not stable**.
+            It is only intended for developers wishing to try out the latest features in cloud plugin, some of which may not be fully implemented.
+
+  build:
+    name: Build cloud plugin
+    runs-on: ${{ matrix.config.os }}
+    needs: reset_canary_release
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {
+              os: "ubuntu-latest",
+              arch: "amd64",
+              wasiSDK: "linux",
+              extension: "",
+              buildArgs: "--features openssl/vendored",
+              target: "",
+              targetDir: "target/release",
+            }
+          - {
+            os: "ubuntu-latest",
+            arch: "aarch64",
+            wasiSDK: "linux",
+            extension: "",
+            buildArgs: "--features openssl/vendored --target aarch64-unknown-linux-gnu",
+            target: "aarch64-unknown-linux-gnu",
+            targetDir: "target/aarch64-unknown-linux-gnu/release",
+          }
+          - {
+              os: "macos-latest",
+              arch: "amd64",
+              wasiSDK: "macos",
+              extension: "",
+              buildArgs: "",
+              target: "",
+              targetDir: "target/release",
+            }
+          - {
+              os: "macos-latest",
+              arch: "aarch64",
+              wasiSDK: "macos",
+              extension: "",
+              buildArgs: "--target aarch64-apple-darwin",
+              target: "aarch64-apple-darwin",
+              targetDir: "target/aarch64-apple-darwin/release/",
+            }
+          - {
+              os: "windows-latest",
+              arch: "amd64",
+              wasiSDK: "",
+              extension: ".exe",
+              buildArgs: "",
+              target: "",
+              targetDir: "target/release",
+            }
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install latest Rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.68
+          default: true
+          target: ${{ matrix.config.target }}
+
+      - name: "Install Wasm Rust target"
+        run: rustup target add wasm32-wasi --toolchain 1.68 && rustup target add wasm32-unknown-unknown --toolchain 1.68
+
+      - name: set the release version (main)
+        shell: bash
+        run: echo "RELEASE_VERSION=canary" >> $GITHUB_ENV
+
+      - name: set the release version (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: echo "RELEASE_VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+
+      - name: lowercase the runner OS name
+        shell: bash
+        run: |
+          OS=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
+          echo "RUNNER_OS=$OS" >> $GITHUB_ENV
+      
+      - name: setup for cross-compiled linux aarch64 build
+        if: matrix.config.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt update
+          sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo '[target.aarch64-unknown-linux-gnu]' >> ${HOME}/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ${HOME}/.cargo/config.toml
+
+      - name: build release
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: "--release ${{ matrix.config.buildArgs }}"
+
+      - name: Package as plugins tar
+        shell: bash
+        run: |
+          mkdir -v _dist
+          cp ${{ matrix.config.targetDir }}/cloud-plugin${{ matrix.config.extension }} _dist/cloud${{ matrix.config.extension }}
+          cp  LICENSE _dist/cloud.license
+          cd _dist 
+          tar czf cloud-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz cloud.license cloud${{ matrix.config.extension }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+            name: cloud-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
+            path: _dist/cloud-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
+            
+      - name: upload binary to Github release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: _dist/cloud-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
+          tag: ${{ github.ref }}
+
+      - name: upload binary to Github release (canary)
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: _dist/cloud-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
+          tag: "canary"
+
+  checksums_and_manifests:
+    name: generate checksums and manifest
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+
+      - uses: actions/checkout@v3
+      - name: set the release version (main)
+        shell: bash
+        run: echo "RELEASE_VERSION=canary" >> $GITHUB_ENV
+
+      - name: set the release version (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: echo "RELEASE_VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+
+      - name: download release assets
+        uses: actions/download-artifact@v3
+
+      - name: generate checksums
+        run: |
+          ls -lh
+          sha256sum cloud*.tar.gz/cloud*.tar.gz > checksums-${{ env.RELEASE_VERSION }}.txt
+
+      - name: upload checksums to Github release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: checksums-${{ env.RELEASE_VERSION }}.txt
+          tag: ${{ github.ref }}
+
+      - name: upload checksums to Github release (canary)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: checksums-${{ env.RELEASE_VERSION }}.txt
+          tag: "canary"
+
+      - name: create plugin manifest
+        shell: bash
+        run: bash .plugin-manifests/generate-manifest.sh ${{ env.RELEASE_VERSION }} checksums-${{ env.RELEASE_VERSION }}.txt > cloud.json
+
+      - name: upload plugin manifest to releases
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: cloud.json
+          tag: ${{ env.RELEASE_VERSION }}

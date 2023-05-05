@@ -31,3 +31,8 @@ spin-trigger-http = { git = "https://github.com/fermyon/spin" }
 tempfile = "3.3.0"
 url = "2.3"
 uuid = { version = "1.3", features = ["v4"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# This needs to be an explicit dependency to enable
+# '--features openssl/vendored', which is used for Linux releases.
+openssl = { version = "0.10" }
