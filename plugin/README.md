@@ -9,18 +9,18 @@ Later, these should be moved to a release artifact the [plugins repository](http
 2. Install the plugin and run it
 
 ```sh
-spin plugin install -f ./plugin/cloud-fermyon.json
-spin cloud-fermyon login
-spin cloud-fermyon deploy
+spin plugin install -f ./plugin/cloud.json
+spin cloud login
+spin cloud deploy
 ```
 
 ## Repackaging the plugin
 
 ```sh
 cargo build --release
-cp target/release/cloud-plugin cloud-fermyon
-tar -czvf cloud.tar.gz cloud-fermyon
+cp target/release/cloud-plugin cloud
+tar -czvf cloud.tar.gz cloud
 sha256sum cloud.tar.gz
-rm cloud-fermyon
-# Update cloud-fermyon.json with shasum
+rm cloud
+# Update cloud.json with shasum
 ```
