@@ -642,21 +642,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cloud-openapi"
-version = "0.1.0"
-source = "git+https://github.com/fermyon/cloud-openapi?rev=1a7bc0316d2dd863d9090f201543215b36db7017#1a7bc0316d2dd863d9090f201543215b36db7017"
-dependencies = [
- "reqwest",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_with",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "cloud-plugin"
+name = "cloud-fermyon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -668,6 +654,7 @@ dependencies = [
  "dirs 5.0.1",
  "hippo",
  "hippo-openapi",
+ "openssl",
  "rand 0.8.5",
  "reqwest",
  "rpassword",
@@ -682,6 +669,20 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "cloud-openapi"
+version = "0.1.0"
+source = "git+https://github.com/fermyon/cloud-openapi?rev=1a7bc0316d2dd863d9090f201543215b36db7017#1a7bc0316d2dd863d9090f201543215b36db7017"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_with",
  "url",
  "uuid",
 ]
