@@ -696,8 +696,7 @@ checksum = "2da6da31387c7e4ef160ffab6d5e7f00c42626fe39aea70a7b0f1773f7dd6c1b"
 
 [[package]]
 name = "cloud"
-version = "1.3.0-pre0"
-source = "git+https://github.com/fermyon/spin#2bdf0ba7459d287c0058e111c6ce32dcda975ed5"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "cloud-openapi",
@@ -715,7 +714,7 @@ dependencies = [
 [[package]]
 name = "cloud-openapi"
 version = "0.1.0"
-source = "git+https://github.com/fermyon/cloud-openapi?rev=1a7bc0316d2dd863d9090f201543215b36db7017#1a7bc0316d2dd863d9090f201543215b36db7017"
+source = "git+https://github.com/fermyon/cloud-openapi?rev=e007319d3a8ab970c626d6ae3c100240a8d2ee60#e007319d3a8ab970c626d6ae3c100240a8d2ee60"
 dependencies = [
  "reqwest",
  "serde",
