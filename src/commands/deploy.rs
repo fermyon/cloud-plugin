@@ -3,6 +3,7 @@ use std::io;
 use std::io::{copy, Write};
 use std::path::PathBuf;
 
+use crate::{opts::*, parse_buildinfo};
 use anyhow::ensure;
 use anyhow::{anyhow, bail, Context, Result};
 use bindle::Id;
@@ -15,20 +16,18 @@ use hippo_openapi::models::ChannelRevisionSelectionStrategy;
 use rand::Rng;
 use semver::BuildMetadata;
 use sha2::{Digest, Sha256};
+use spin_common::sloth;
+use spin_http::routes::RoutePattern;
 use spin_loader::bindle::BindleConnectionInfo;
 use spin_loader::local::config::RawAppManifest;
 use spin_loader::local::{assets, config, parent_dir};
 use spin_manifest::ApplicationTrigger;
 use spin_manifest::{HttpTriggerConfiguration, TriggerConfig};
-use spin_trigger_http::routes::RoutePattern;
 use spin_trigger_http::AppInfo;
-use spin_trigger_http::WELL_KNOWN_PREFIX;
 use tokio::fs;
 use tracing::instrument;
 use url::Url;
 use uuid::Uuid;
-
-use crate::{opts::*, parse_buildinfo, sloth::warn_if_slow_response};
 
 use crate::commands::login::LoginCommand;
 use crate::commands::login::LoginConnection;
@@ -203,11 +202,13 @@ impl DeployCommand {
             }
         }
 
-        let sloth_warning =
-            warn_if_slow_response(format!("Checking status ({})", login_connection.url));
+        let sloth_guard = sloth::warn_if_slothful(
+            2500,
+            format!("Checking status ({})\n", login_connection.url),
+        );
         check_healthz(&login_connection.url).await?;
-        // Hippo has responded - we don't want to keep the sloth timer running.
-        drop(sloth_warning);
+        // Server has responded - we don't want to keep the sloth timer running.
+        drop(sloth_guard);
 
         // TODO: we should have a smarter check in place here to determine the difference between Hippo and the Cloud APIs
         if login_connection.bindle_url.is_some() {
@@ -764,7 +765,7 @@ async fn wait_for_ready(
     }
 
     let app_info_url = app_base_url
-        .join(WELL_KNOWN_PREFIX.trim_start_matches('/'))
+        .join(spin_http::WELL_KNOWN_PREFIX.trim_start_matches('/'))
         .unwrap()
         .join("info")
         .unwrap()
