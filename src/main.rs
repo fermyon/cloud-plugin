@@ -1,6 +1,5 @@
 mod commands;
 mod opts;
-mod sloth;
 use anyhow::{anyhow, Error, Result};
 use clap::{Parser, Subcommand};
 use commands::{deploy::DeployCommand, login::LoginCommand};
@@ -20,8 +19,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Adds files to myapp
+    /// Package and upload an application to the Fermyon Cloud.
     Deploy(DeployCommand),
+    /// Login to the Fermyon Platform.
     Login(LoginCommand),
 }
 
