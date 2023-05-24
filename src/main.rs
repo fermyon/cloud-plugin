@@ -1,4 +1,5 @@
 mod commands;
+mod manifest;
 mod opts;
 use anyhow::{anyhow, Error, Result};
 use clap::{Parser, Subcommand};
