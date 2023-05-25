@@ -18,7 +18,7 @@ spin plugin install --url https://github.com/fermyon/cloud-plugin/releases/downl
     tar -czvf cloud.tar.gz cloud
     sha256sum cloud.tar.gz
     rm cloud
-    # Update cloud.json with shasum
+    # Outputs a shasum to add to cloud.json
     ```
 
 1. Get the manifest.
@@ -27,7 +27,7 @@ spin plugin install --url https://github.com/fermyon/cloud-plugin/releases/downl
     curl -LRO https://github.com/fermyon/cloud-plugin/releases/download/canary/cloud.json
     ```
 
-1. Update the manifest to modify the `url` field to point to the path to local package (i.e. `"url": "file:///path/to/cloud-plugin/plugin/cloud.tar.gz"`).
+1. Update the manifest to modify the `url` field to point to the path to local package (i.e. `"url": "file:///path/to/cloud-plugin/plugin/cloud.tar.gz"`) and update the shasum.
 
 1. Install the plugin, pointing to the path to the manifest.
 

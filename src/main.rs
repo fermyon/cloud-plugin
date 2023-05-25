@@ -3,7 +3,7 @@ mod manifest;
 mod opts;
 use anyhow::{anyhow, Error, Result};
 use clap::{Parser, Subcommand};
-use commands::{deploy::DeployCommand, login::LoginCommand};
+use commands::{deploy::DeployCommand, login::LoginCommand, variables::VariablesCommand};
 use semver::BuildMetadata;
 use spin_bindle::PublishError;
 use std::path::Path;
@@ -22,6 +22,8 @@ enum Commands {
     Deploy(DeployCommand),
     /// Login to Fermyon Cloud
     Login(LoginCommand),
+    /// Manage Spin application variables
+    Variables(VariablesCommand),
 }
 
 #[tokio::main]
@@ -33,6 +35,7 @@ async fn main() -> Result<(), Error> {
     match cli.command {
         Commands::Deploy(cmd) => cmd.run().await,
         Commands::Login(cmd) => cmd.run().await,
+        Commands::Variables(cmd) => cmd.run().await,
     }
 }
 
