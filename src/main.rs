@@ -8,8 +8,6 @@ use semver::BuildMetadata;
 use spin_bindle::PublishError;
 use std::path::Path;
 
-pub use crate::opts::HELP_ARGS_ONLY_TRIGGER_TYPE;
-
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 #[clap(propagate_version = true)]
@@ -20,9 +18,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Package and upload an application to the Fermyon Cloud.
+    /// Package and upload an application to Fermyon Cloud.
     Deploy(DeployCommand),
-    /// Login to the Fermyon Platform.
+    /// Login to Fermyon Cloud
     Login(LoginCommand),
 }
 

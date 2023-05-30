@@ -1,37 +1,40 @@
-use anyhow::ensure;
-use anyhow::{anyhow, bail, Context, Result};
+#![allow(unused)]
+
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use bindle::Id;
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::client::{Client as CloudClient, ConnectionConfig};
 use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
-use hippo::{Client, ConnectionInfo};
-use hippo_openapi::models::ChannelRevisionSelectionStrategy;
 use rand::Rng;
 use semver::BuildMetadata;
 use sha2::{Digest, Sha256};
 use spin_common::{arg_parser::parse_kv, sloth};
 use spin_http::routes::RoutePattern;
-use spin_loader::bindle::BindleConnectionInfo;
-use spin_loader::local::config::RawAppManifest;
-use spin_loader::local::{assets, config, parent_dir};
-use spin_manifest::ApplicationTrigger;
-use spin_manifest::{HttpTriggerConfiguration, TriggerConfig};
+use spin_loader::{
+    bindle::BindleConnectionInfo,
+    local::{
+        assets,
+        config::{self, RawAppManifest},
+        parent_dir,
+    },
+};
+use spin_manifest::{ApplicationTrigger, HttpTriggerConfiguration, TriggerConfig};
 use spin_trigger_http::AppInfo;
 use tokio::fs;
 use tracing::instrument;
 
-use std::fs::File;
-use std::io;
-use std::io::{copy, Write};
-use std::path::PathBuf;
+use std::{
+    fs::File,
+    io::{self, copy, Write},
+    path::PathBuf,
+};
 use url::Url;
 use uuid::Uuid;
 
 use crate::{opts::*, parse_buildinfo};
 
-use super::login::LoginCommand;
-use super::login::LoginConnection;
+use super::login::{LoginCommand, LoginConnection};
 
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
@@ -215,16 +218,11 @@ impl DeployCommand {
         // Server has responded - we don't want to keep the sloth timer running.
         drop(sloth_guard);
 
-        // TODO: we should have a smarter check in place here to determine the difference between Hippo and the Cloud APIs
-        if login_connection.bindle_url.is_some() {
-            self.deploy_hippo(login_connection).await
-        } else {
-            const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
+        const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
 
-            self.deploy_cloud(login_connection)
-                .await
-                .map_err(|e| anyhow!("{:?}\n\nLearn more at {}", e, DEVELOPER_CLOUD_FAQ))
-        }
+        self.deploy_cloud(login_connection)
+            .await
+            .map_err(|e| anyhow!("{:?}\n\nLearn more at {}", e, DEVELOPER_CLOUD_FAQ))
     }
 
     fn app(&self) -> anyhow::Result<PathBuf> {
@@ -246,126 +244,6 @@ impl DeployCommand {
         let path = root.join(file);
 
         Ok(path)
-    }
-
-    async fn deploy_hippo(self, login_connection: LoginConnection) -> Result<()> {
-        let cfg_any = spin_loader::local::raw_manifest_from_file(&self.app()?).await?;
-        let cfg = cfg_any.into_v1();
-
-        ensure!(!cfg.components.is_empty(), "No components in spin.toml!");
-
-        let buildinfo = if !self.no_buildinfo {
-            match &self.buildinfo {
-                Some(i) => Some(i.clone()),
-                None => self.compute_buildinfo(&cfg).await.map(Option::Some)?,
-            }
-        } else {
-            None
-        };
-
-        let bindle_connection_info = BindleConnectionInfo::new(
-            login_connection.bindle_url.unwrap(),
-            login_connection.danger_accept_invalid_certs,
-            login_connection.bindle_username,
-            login_connection.bindle_password,
-        );
-
-        let bindle_id = self
-            .create_and_push_bindle(buildinfo, bindle_connection_info)
-            .await?;
-
-        let hippo_client = Client::new(ConnectionInfo {
-            url: login_connection.url.to_string(),
-            danger_accept_invalid_certs: login_connection.danger_accept_invalid_certs,
-            api_key: Some(login_connection.token),
-        });
-
-        let name = bindle_id.name().to_string();
-
-        // Create or update app
-        // TODO: this process involves many calls to Hippo. Should be able to update the channel
-        // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Hippo.
-        let channel_id = match self.get_app_id_hippo(&hippo_client, name.clone()).await {
-            Ok(app_id) => {
-                Client::add_revision(
-                    &hippo_client,
-                    name.clone(),
-                    bindle_id.version_string().clone(),
-                )
-                .await?;
-                let existing_channel_id = self
-                    .get_channel_id_hippo(
-                        &hippo_client,
-                        SPIN_DEPLOY_CHANNEL_NAME.to_string(),
-                        app_id,
-                    )
-                    .await?;
-                let active_revision_id = self
-                    .get_revision_id_hippo(
-                        &hippo_client,
-                        bindle_id.version_string().clone(),
-                        app_id,
-                    )
-                    .await?;
-                Client::patch_channel(
-                    &hippo_client,
-                    existing_channel_id,
-                    None,
-                    None,
-                    Some(ChannelRevisionSelectionStrategy::UseSpecifiedRevision),
-                    None,
-                    Some(active_revision_id),
-                    None,
-                    None,
-                )
-                .await
-                .context("Problem patching a channel in Hippo")?;
-
-                existing_channel_id
-            }
-            Err(_) => {
-                let range_rule = Some(bindle_id.version_string());
-                let app_id = Client::add_app(&hippo_client, name.clone(), name.clone())
-                    .await
-                    .context("Unable to create Hippo app")?;
-                Client::add_channel(
-                    &hippo_client,
-                    app_id,
-                    String::from(SPIN_DEPLOY_CHANNEL_NAME),
-                    None,
-                    ChannelRevisionSelectionStrategy::UseRangeRule,
-                    range_rule,
-                    None,
-                    None,
-                )
-                .await
-                .context("Problem creating a channel in Hippo")?
-            }
-        };
-
-        println!(
-            "Deployed {} version {}",
-            name.clone(),
-            bindle_id.version_string()
-        );
-        let channel = Client::get_channel_by_id(&hippo_client, &channel_id.to_string())
-            .await
-            .context("Problem getting channel by id")?;
-        let app_base_url = build_app_base_url(&channel.domain, &login_connection.url)?;
-        if let Ok(http_config) = HttpTriggerConfiguration::try_from(cfg.info.trigger.clone()) {
-            wait_for_ready(
-                &app_base_url,
-                &bindle_id.version_string(),
-                self.readiness_timeout_secs,
-                Destination::Platform,
-            )
-            .await;
-            print_available_routes(&app_base_url, &http_config.base, &cfg);
-        } else {
-            println!("Application is running at {}", channel.domain);
-        }
-
-        Ok(())
     }
 
     async fn deploy_cloud(self, login_connection: LoginConnection) -> Result<()> {
@@ -414,8 +292,8 @@ impl DeployCommand {
         println!("Deploying...");
 
         // Create or update app
-        // TODO: this process involves many calls to Hippo. Should be able to update the channel
-        // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Hippo.
+        // TODO: this process involves many calls to Cloud. Should be able to update the channel
+        // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
         let channel_id = match self.get_app_id_cloud(&client, name.clone()).await {
             Ok(app_id) => {
                 CloudClient::add_revision(
@@ -554,15 +432,6 @@ impl DeployCommand {
         Ok(buildinfo)
     }
 
-    async fn get_app_id_hippo(&self, hippo_client: &Client, name: String) -> Result<Uuid> {
-        let apps_vm = Client::list_apps(hippo_client).await?;
-        let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
-        match app {
-            Some(a) => Ok(a.id),
-            None => bail!("No app with name: {}", name),
-        }
-    }
-
     async fn get_app_id_cloud(&self, cloud_client: &CloudClient, name: String) -> Result<Uuid> {
         let apps_vm = CloudClient::list_apps(cloud_client).await?;
         let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
@@ -570,28 +439,6 @@ impl DeployCommand {
             Some(a) => Ok(a.id),
             None => bail!("No app with name: {}", name),
         }
-    }
-
-    async fn get_revision_id_hippo(
-        &self,
-        hippo_client: &Client,
-        bindle_version: String,
-        app_id: Uuid,
-    ) -> Result<Uuid> {
-        let revisions = Client::list_revisions(hippo_client).await?;
-        let revision = revisions
-            .items
-            .iter()
-            .find(|&x| x.revision_number == bindle_version && x.app_id == app_id);
-        Ok(revision
-            .ok_or_else(|| {
-                anyhow!(
-                    "No revision with version {} and app id {}",
-                    bindle_version,
-                    app_id
-                )
-            })?
-            .id)
     }
 
     async fn get_revision_id_cloud(
@@ -623,23 +470,6 @@ impl DeployCommand {
             bindle_version,
             app_id
         ))
-    }
-
-    async fn get_channel_id_hippo(
-        &self,
-        hippo_client: &Client,
-        name: String,
-        app_id: Uuid,
-    ) -> Result<Uuid> {
-        let channels_vm = Client::list_channels(hippo_client).await?;
-        let channel = channels_vm
-            .items
-            .iter()
-            .find(|&x| x.app_id == app_id && x.name == name.clone());
-        match channel {
-            Some(c) => Ok(c.id),
-            None => bail!("No channel with app_id {} and name {}", app_id, name),
-        }
     }
 
     async fn get_channel_id_cloud(
@@ -740,11 +570,11 @@ fn random_buildinfo() -> BuildMetadata {
     BuildMetadata::new(&format!("r{random_hex}")).unwrap()
 }
 
-fn build_app_base_url(app_domain: &str, hippo_url: &Url) -> Result<Url> {
-    // HACK: We assume that the scheme (https vs http) of apps will match that of Hippo...
-    let scheme = hippo_url.scheme();
+fn build_app_base_url(app_domain: &str, cloud_url: &Url) -> Result<Url> {
+    // HACK: We assume that the scheme (https vs http) of apps will match that of Cloud...
+    let scheme = cloud_url.scheme();
     Url::parse(&format!("{scheme}://{app_domain}/")).with_context(|| {
-        format!("Could not construct app base URL for {app_domain:?} (Hippo URL: {hippo_url:?})",)
+        format!("Could not construct app base URL for {app_domain:?} (Cloud URL: {cloud_url:?})",)
     })
 }
 
@@ -761,7 +591,6 @@ const READINESS_POLL_INTERVAL_SECS: u64 = 2;
 
 enum Destination {
     Cloud(String),
-    Platform,
 }
 
 async fn wait_for_ready(
@@ -806,8 +635,12 @@ async fn wait_for_ready(
         if start.elapsed() >= readiness_timeout {
             println!();
             println!("Application deployed, but Spin could not establish readiness");
-            if let Destination::Cloud(url) = destination {
-                println!("Check the Fermyon Cloud dashboard to see the application status: {url}");
+            match destination {
+                Destination::Cloud(url) => {
+                    println!(
+                        "Check the Fermyon Cloud dashboard to see the application status: {url}"
+                    );
+                }
             }
             return;
         }

@@ -7,8 +7,6 @@ use clap::Parser;
 use cloud::client::{Client, ConnectionConfig};
 use cloud_openapi::models::DeviceCodeItem;
 use cloud_openapi::models::TokenInfo;
-use hippo::Client as HippoClient;
-use hippo::ConnectionInfo;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
@@ -18,9 +16,8 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::opts::{
-    BINDLE_PASSWORD, BINDLE_SERVER_URL_OPT, BINDLE_URL_ENV, BINDLE_USERNAME,
-    DEPLOYMENT_ENV_NAME_ENV, HIPPO_PASSWORD, HIPPO_SERVER_URL_OPT, HIPPO_URL_ENV, HIPPO_USERNAME,
-    INSECURE_OPT, SPIN_AUTH_TOKEN, TOKEN,
+    CLOUD_SERVER_URL_OPT, CLOUD_URL_ENV, DEPLOYMENT_ENV_NAME_ENV, INSECURE_OPT, SPIN_AUTH_TOKEN,
+    TOKEN,
 };
 
 // this is the client ID registered in the Cloud's backend
@@ -28,37 +25,10 @@ const SPIN_CLIENT_ID: &str = "583e63e9-461f-4fbe-a246-23e0fb1cad10";
 
 const DEFAULT_CLOUD_URL: &str = "https://cloud.fermyon.com/";
 
-/// Log into the Fermyon Platform.
+/// Log into Fermyon Cloud.
 #[derive(Parser, Debug)]
-#[clap(about = "Log into the Fermyon Platform")]
 pub struct LoginCommand {
-    /// URL of bindle server
-    #[clap(
-        name = BINDLE_SERVER_URL_OPT,
-        long = "bindle-server",
-        env = BINDLE_URL_ENV,
-    )]
-    pub bindle_server_url: Option<String>,
-
-    /// Basic http auth username for the bindle server
-    #[clap(
-        name = BINDLE_USERNAME,
-        long = "bindle-username",
-        env = BINDLE_USERNAME,
-        requires = BINDLE_PASSWORD
-    )]
-    pub bindle_username: Option<String>,
-
-    /// Basic http auth password for the bindle server
-    #[clap(
-        name = BINDLE_PASSWORD,
-        long = "bindle-password",
-        env = BINDLE_PASSWORD,
-        requires = BINDLE_USERNAME
-    )]
-    pub bindle_password: Option<String>,
-
-    /// Ignore server certificate errors from bindle and hippo
+    /// Ignore server certificate errors.
     #[clap(
         name = INSECURE_OPT,
         short = 'k',
@@ -67,33 +37,15 @@ pub struct LoginCommand {
     )]
     pub insecure: bool,
 
-    /// URL of hippo server
+    /// URL of Fermyon Cloud Instance.
     #[clap(
-        name = HIPPO_SERVER_URL_OPT,
+        name = CLOUD_SERVER_URL_OPT,
         long = "url",
-        env = HIPPO_URL_ENV,
+        env = CLOUD_URL_ENV,
         default_value = DEFAULT_CLOUD_URL,
         value_parser = parse_url,
     )]
-    pub hippo_server_url: url::Url,
-
-    /// Hippo username
-    #[clap(
-        name = HIPPO_USERNAME,
-        long = "username",
-        env = HIPPO_USERNAME,
-        requires = HIPPO_PASSWORD,
-    )]
-    pub hippo_username: Option<String>,
-
-    /// Hippo password
-    #[clap(
-        name = HIPPO_PASSWORD,
-        long = "password",
-        env = HIPPO_PASSWORD,
-        requires = HIPPO_USERNAME,
-    )]
-    pub hippo_password: Option<String>,
+    pub cloud_url: url::Url,
 
     /// Auth Token
     #[clap(
@@ -167,12 +119,12 @@ pub struct LoginCommand {
 }
 
 fn parse_url(url: &str) -> Result<url::Url> {
-    let mut url = Url::parse(url)
-        .map_err(|error| {
-            anyhow::format_err!(
-                "URL should be fully qualified in the format \"https://my-hippo-instance.com\". Error: {}", error
-            )
-        })?;
+    let mut url = Url::parse(url).map_err(|error| {
+        anyhow::format_err!(
+            "URL should be fully qualified in the format \"https://cloud-instance.com\". Error: {}",
+            error
+        )
+    })?;
     // Ensure path ends with '/' so join works properly
     if !url.path().ends_with('/') {
         url.set_path(&(url.path().to_string() + "/"));
@@ -261,7 +213,6 @@ impl LoginCommand {
     async fn run_interactive_login(&self) -> Result<()> {
         let login_connection = match self.auth_method() {
             AuthMethod::Github => self.run_interactive_gh_login().await?,
-            AuthMethod::UsernameAndPassword => self.run_interactive_basic_login().await?,
             AuthMethod::Token => self.login_using_token().await?,
         };
         self.save_login_info(&login_connection)
@@ -276,7 +227,7 @@ impl LoginCommand {
 
         // Validate the token by calling list_apps API until we have a user info API
         Client::new(ConnectionConfig {
-            url: self.hippo_server_url.to_string(),
+            url: self.cloud_url.to_string(),
             insecure: self.insecure,
             token: token.clone(),
         })
@@ -295,101 +246,23 @@ impl LoginCommand {
         Ok(self.login_connection_for_token_info(token_info))
     }
 
-    async fn run_interactive_basic_login(&self) -> Result<LoginConnection> {
-        let username = prompt_if_not_provided(&self.hippo_username, "Hippo username")?;
-        let password = match &self.hippo_password {
-            Some(password) => password.to_owned(),
-            None => {
-                print!("Hippo password: ");
-                std::io::stdout().flush()?;
-                rpassword::read_password()
-                    .expect("unable to read user input")
-                    .trim()
-                    .to_owned()
-            }
-        };
-
-        let bindle_url = prompt_if_not_provided(&self.bindle_server_url, "Bindle URL")?;
-
-        // If Bindle URL was provided and Bindle username and password were not, assume Bindle
-        // is unauthenticated.  If Bindle URL was prompted for, or Bindle username or password
-        // is provided, ask the user.
-        let mut bindle_username = self.bindle_username.clone();
-        let mut bindle_password = self.bindle_password.clone();
-
-        let unauthenticated_bindle_server_provided = self.bindle_server_url.is_some()
-            && self.bindle_username.is_none()
-            && self.bindle_password.is_none();
-        if !unauthenticated_bindle_server_provided {
-            let bindle_username_text = prompt_if_not_provided(
-                &self.bindle_username,
-                "Bindle username (blank for unauthenticated)",
-            )?;
-            bindle_username = if bindle_username_text.is_empty() {
-                None
-            } else {
-                Some(bindle_username_text)
-            };
-            bindle_password = match bindle_username {
-                None => None,
-                Some(_) => Some(prompt_if_not_provided(
-                    &self.bindle_password,
-                    "Bindle password",
-                )?),
-            };
-        }
-
-        // log in with username/password
-        let token = match HippoClient::login(
-            &HippoClient::new(ConnectionInfo {
-                url: self.hippo_server_url.to_string(),
-                danger_accept_invalid_certs: self.insecure,
-                api_key: None,
-            }),
-            username,
-            password,
-        )
-        .await
-        {
-            Ok(token_info) => token_info,
-            Err(err) => bail!(format_login_error(&err)?),
-        };
-
-        Ok(LoginConnection {
-            url: self.hippo_server_url.clone(),
-            danger_accept_invalid_certs: self.insecure,
-            token: token.token.unwrap_or_default(),
-            refresh_token: None,
-            expiration: token.expiration,
-            bindle_url: Some(bindle_url),
-            bindle_username,
-            bindle_password,
-        })
-    }
-
     fn login_connection_for_token(&self, token: String) -> LoginConnection {
         LoginConnection {
-            url: self.hippo_server_url.clone(),
+            url: self.cloud_url.clone(),
             danger_accept_invalid_certs: self.insecure,
             token,
             refresh_token: None,
             expiration: None,
-            bindle_url: None,
-            bindle_username: None,
-            bindle_password: None,
         }
     }
 
     fn login_connection_for_token_info(&self, token_info: TokenInfo) -> LoginConnection {
         LoginConnection {
-            url: self.hippo_server_url.clone(),
+            url: self.cloud_url.clone(),
             danger_accept_invalid_certs: self.insecure,
             token: token_info.token,
             refresh_token: Some(token_info.refresh_token),
             expiration: Some(token_info.expiration),
-            bindle_url: None,
-            bindle_username: None,
-            bindle_password: None,
         }
     }
 
@@ -411,7 +284,7 @@ impl LoginCommand {
 
     fn anon_connection_config(&self) -> ConnectionConfig {
         ConnectionConfig {
-            url: self.hippo_server_url.to_string(),
+            url: self.cloud_url.to_string(),
             insecure: self.insecure,
             token: Default::default(),
         }
@@ -422,9 +295,7 @@ impl LoginCommand {
             method.clone()
         } else if self.get_device_code || self.check_device_code.is_some() {
             AuthMethod::Github
-        } else if self.hippo_username.is_some() || self.hippo_password.is_some() {
-            AuthMethod::UsernameAndPassword
-        } else if self.hippo_server_url.as_str() != DEFAULT_CLOUD_URL {
+        } else if self.cloud_url.as_str() != DEFAULT_CLOUD_URL {
             // prompt the user for the authentication method
             // TODO: implement a server "feature" check that tells us what authentication methods it supports
             prompt_for_auth_method()
@@ -447,21 +318,6 @@ fn config_root_dir() -> Result<PathBuf, anyhow::Error> {
         .context("Cannot find configuration directory")?
         .join("fermyon");
     Ok(root)
-}
-
-fn prompt_if_not_provided(provided: &Option<String>, prompt_text: &str) -> Result<String> {
-    match provided {
-        Some(value) => Ok(value.to_owned()),
-        None => {
-            print!("{}: ", prompt_text);
-            std::io::stdout().flush()?;
-            let mut input = String::new();
-            stdin()
-                .read_line(&mut input)
-                .expect("unable to read user input");
-            Ok(input.trim().to_owned())
-        }
-    }
 }
 
 async fn github_token(
@@ -517,15 +373,6 @@ async fn create_device_code(client: &Client) -> Result<DeviceCodeItem> {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LoginConnection {
     pub url: Url,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub bindle_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub bindle_username: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub bindle_password: Option<String>,
     pub danger_accept_invalid_certs: bool,
     pub token: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -537,23 +384,9 @@ pub struct LoginConnection {
 }
 
 #[derive(Deserialize, Serialize)]
-struct LoginHippoError {
+struct LoginCloudError {
     title: String,
     detail: String,
-}
-
-fn format_login_error(err: &anyhow::Error) -> anyhow::Result<String> {
-    let detail = match serde_json::from_str::<LoginHippoError>(err.to_string().as_str()) {
-        Ok(e) => {
-            if e.detail.ends_with(": ") {
-                e.detail.replace(": ", ".")
-            } else {
-                e.detail
-            }
-        }
-        Err(_) => err.to_string(),
-    };
-    Ok(format!("Problem logging into Hippo: {}", detail))
 }
 
 /// Ensure the root directory exists, or else create it.
@@ -587,8 +420,6 @@ fn ensure(root: &PathBuf) -> Result<()> {
 pub enum AuthMethod {
     #[clap(name = "github")]
     Github,
-    #[clap(name = "username")]
-    UsernameAndPassword,
     #[clap(name = "token")]
     Token,
 }
@@ -606,9 +437,6 @@ fn prompt_for_auth_method() -> AuthMethod {
         match input.trim() {
             "1" => {
                 return AuthMethod::Github;
-            }
-            "2" => {
-                return AuthMethod::UsernameAndPassword;
             }
             _ => {
                 println!("invalid input. Please enter either 1 or 2.");
