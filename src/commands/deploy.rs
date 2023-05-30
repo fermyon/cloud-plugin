@@ -32,9 +32,7 @@ use std::{
 use url::Url;
 use uuid::Uuid;
 
-use crate::{commands::variables::set_variables, opts::*, parse_buildinfo};
-
-use super::login::{LoginCommand, LoginConnection};
+use crate::{commands::login::{LoginCommand, LoginConnection}, opts::*, parse_buildinfo};
 
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
