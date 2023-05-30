@@ -8,4 +8,3 @@ pub const CLOUD_URL_ENV: &str = "CLOUD_URL";
 pub const DEPLOYMENT_ENV_NAME_ENV: &str = "FERMYON_DEPLOYMENT_ENVIRONMENT";
 pub const TOKEN: &str = "TOKEN";
 pub const SPIN_AUTH_TOKEN: &str = "SPIN_AUTH_TOKEN";
-pub const VARIABLES_SET_OPT: &str = "SET";

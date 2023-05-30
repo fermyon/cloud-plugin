@@ -12,14 +12,17 @@ use cloud_openapi::{
         device_codes_api::api_device_codes_post,
         key_value_pairs_api::api_key_value_pairs_post,
         revisions_api::{api_revisions_get, api_revisions_post},
-        variable_pairs_api::api_variable_pairs_post,
+        variable_pairs_api::{
+            api_variable_pairs_delete, api_variable_pairs_get, api_variable_pairs_post,
+        },
         Error, ResponseContent,
     },
     models::{
         AppItemPage, ChannelItem, ChannelItemPage, ChannelRevisionSelectionStrategy,
         CreateAppCommand, CreateChannelCommand, CreateDeviceCodeCommand, CreateKeyValuePairCommand,
-        CreateVariablePairCommand, DeviceCodeItem, GetChannelLogsVm, RefreshTokenCommand,
-        RegisterRevisionCommand, RevisionItemPage, TokenInfo, UpdateEnvironmentVariableDto,
+        CreateVariablePairCommand, DeleteVariablePairCommand, DeviceCodeItem, GetChannelLogsVm,
+        GetVariablesQuery, RefreshTokenCommand, RegisterRevisionCommand, RevisionItemPage,
+        TokenInfo, UpdateEnvironmentVariableDto,
     },
 };
 use reqwest::header;
@@ -295,7 +298,7 @@ impl Client {
     }
 
     pub async fn list_revisions(&self) -> anyhow::Result<RevisionItemPage> {
-        api_revisions_get(&self.configuration, None, None, None)
+        api_revisions_get(&self.configuration, None, None, None, None)
             .await
             .map_err(format_response_error)
     }
@@ -308,6 +311,7 @@ impl Client {
             &self.configuration,
             Some(previous.page_index + 1),
             Some(previous.page_size),
+            None,
             None,
         )
         .await
@@ -352,6 +356,23 @@ impl Client {
         )
         .await
         .map_err(format_response_error)
+    }
+
+    pub async fn delete_variable_pair(&self, app_id: Uuid, variable: String) -> anyhow::Result<()> {
+        api_variable_pairs_delete(
+            &self.configuration,
+            DeleteVariablePairCommand { app_id, variable },
+            None,
+        )
+        .await
+        .map_err(format_response_error)
+    }
+
+    pub async fn get_variable_pairs(&self, app_id: Uuid) -> anyhow::Result<Vec<String>> {
+        let list = api_variable_pairs_get(&self.configuration, GetVariablesQuery { app_id }, None)
+            .await
+            .map_err(format_response_error)?;
+        Ok(list.vars)
     }
 }
 
