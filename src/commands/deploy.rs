@@ -40,9 +40,9 @@ const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
 const BINDLE_REGISTRY_URL_PATH: &str = "api/registry";
 
-/// Package and upload an application to the Fermyon Platform.
+/// Package and upload an application to the Fermyon Cloud.
 #[derive(Parser, Debug)]
-#[clap(about = "Package and upload an application to the Fermyon Platform")]
+#[clap(about = "Package and upload an application to the Fermyon Cloud")]
 pub struct DeployCommand {
     /// The application to deploy. This may be a manifest (spin.toml) file, or a
     /// directory containing a spin.toml file.

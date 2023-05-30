@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use clap::Parser;
+use clap::{Args, Parser};
 use cloud::client::{Client as CloudClient, ConnectionConfig};
 use spin_common::arg_parser::parse_kv;
 use uuid::Uuid;
@@ -11,12 +11,23 @@ use crate::{
 
 /// Manage Spin application variables
 #[derive(Parser, Debug)]
-#[clap(about = "Log into the Fermyon Platform")]
-pub struct VariablesCommand {
-    /// Variable pair to set
-    #[clap(name = VARIABLES_SET_OPT, short = 's', long = "set", parse(try_from_str = parse_kv))]
-    pub variables_to_set: Vec<(String, String)>,
+#[clap(about = "Manage Spin application variables")]
+pub enum VariablesCommand {
+    /// Set variable pairs
+    Set(SetCommand),
+}
 
+#[derive(Parser, Debug)]
+pub struct SetCommand {
+    /// Variable pair to set
+    #[clap(name = VARIABLES_SET_OPT, parse(try_from_str = parse_kv))]
+    pub variables_to_set: Vec<(String, String)>,
+    #[clap(flatten)]
+    common: CommonArgs,
+}
+
+#[derive(Debug, Default, Args)]
+struct CommonArgs {
     /// Deploy to the Fermyon instance saved under the specified name.
     /// If omitted, Spin deploys to the default unnamed instance.
     #[clap(
@@ -31,23 +42,38 @@ pub struct VariablesCommand {
     pub app: String,
 }
 
-impl VariablesCommand {
-    pub async fn run(self) -> Result<()> {
-        let login_connection = login_connection(self.deployment_env_id.as_deref()).await?;
+/// Information needed to connect to Fermyon Cloud to manage a specific Spin application
+struct AppManagmentInfo {
+    app_id: Uuid,
+    client: CloudClient,
+}
 
+impl AppManagmentInfo {
+    pub async fn new(deployment_env_id: Option<&str>, app: &str) -> Result<Self> {
+        let login_connection = login_connection(deployment_env_id).await?;
         let connection_config = ConnectionConfig {
             url: login_connection.url.to_string(),
             insecure: login_connection.danger_accept_invalid_certs,
             token: login_connection.token.clone(),
         };
-
         let client = CloudClient::new(connection_config.clone());
-
-        let app_id = get_app_id_cloud(&client, self.app.clone())
+        let app_id = get_app_id_cloud(&client, app.to_string())
             .await
-            .with_context(|| anyhow!(format!("Could not find app_id for app {}", self.app)))?;
+            .with_context(|| anyhow!(format!("Could not find app_id for app {}", app)))?;
+        Ok(AppManagmentInfo { app_id, client })
+    }
+}
 
-        set_variables(&client, app_id, &self.variables_to_set).await?;
+impl VariablesCommand {
+    pub async fn run(self) -> Result<()> {
+        match self {
+            Self::Set(cmd) => {
+                let info =
+                    AppManagmentInfo::new(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
+                        .await?;
+                set_variables(&info.client, info.app_id, &cmd.variables_to_set).await?;
+            }
+        }
         Ok(())
     }
 }

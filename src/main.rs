@@ -2,7 +2,7 @@ mod commands;
 mod manifest;
 mod opts;
 use anyhow::{anyhow, Error, Result};
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use commands::{deploy::DeployCommand, login::LoginCommand, variables::VariablesCommand};
 use semver::BuildMetadata;
 use spin_bindle::PublishError;
@@ -11,31 +11,24 @@ use std::path::Path;
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 #[clap(propagate_version = true)]
-struct Cli {
-    #[clap(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Package and upload an application to Fermyon Cloud.
+enum CloudCli {
+    /// Package and upload an application to the Fermyon Cloud.
     Deploy(DeployCommand),
     /// Login to Fermyon Cloud
     Login(LoginCommand),
     /// Manage Spin application variables
+    #[clap(subcommand, alias = "vars")]
     Variables(VariablesCommand),
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let cli = Cli::parse();
+    let cli = CloudCli::parse();
 
-    // You can check for the existence of subcommands, and if found use their
-    // matches just as you would the top level cmd
-    match cli.command {
-        Commands::Deploy(cmd) => cmd.run().await,
-        Commands::Login(cmd) => cmd.run().await,
-        Commands::Variables(cmd) => cmd.run().await,
+    match cli {
+        CloudCli::Deploy(cmd) => cmd.run().await,
+        CloudCli::Login(cmd) => cmd.run().await,
+        CloudCli::Variables(cmd) => cmd.run().await,
     }
 }
 
