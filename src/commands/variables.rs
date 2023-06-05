@@ -114,12 +114,8 @@ impl VariablesCommand {
                     .map(|var| from_str(var))
                     .collect::<Result<Vec<Variable>, _>>()
                     .context("could not parse variable")?;
-                if !var_names.is_empty() {
-                    println!();
-                    println!("App {} has the following variables:", cmd.common.app)
-                }
                 for v in var_names {
-                    println!("    {}", v.key);
+                    println!("{}", v.key);
                 }
             }
         }
