@@ -44,7 +44,7 @@ jobs:
           cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   build-rust:
-    name: Build Spin
+    name: Build Cloud Plugin
     runs-on: ${{ matrix.os }}
     needs: [lint-rust]
     strategy:
@@ -73,7 +73,7 @@ jobs:
           CARGO_INCREMENTAL: 0
 
   test-rust:
-    name: Test Spin SDK - Rust
+    name: Plugin Unit Tests
     runs-on: ${{ matrix.os }}
     needs: [lint-rust]
     strategy:
