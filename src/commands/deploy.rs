@@ -32,6 +32,8 @@ use std::{
 use url::Url;
 use uuid::Uuid;
 
+use crate::commands::variables::set_variables;
+
 use crate::{
     commands::login::{LoginCommand, LoginConnection},
     opts::*,
