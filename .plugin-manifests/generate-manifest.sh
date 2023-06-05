@@ -16,7 +16,7 @@ PLUGIN_BINARY_VERSION_STRING=$1
 
 # If canary release tag with epoch at the end as it is monotonic
 if [[ $VERSION == "canary" ]]; then
-    PLUGIN_VERSION=$(cat ./Cargo.toml | grep version | head -n 1 | awk '{print $3}')
+    PLUGIN_VERSION=$(cargo read-manifest | jq -r .version)
     VERSION="${PLUGIN_VERSION//\"}post.$(date +%s)" 
     PLUGIN_BINARY_VERSION_STRING="canary"
 fi
