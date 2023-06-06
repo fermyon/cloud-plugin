@@ -17,7 +17,7 @@ enum CloudCli {
     /// Login to Fermyon Cloud
     Login(LoginCommand),
     /// Manage Spin application variables
-    #[clap(subcommand, alias = "vars")]
+    #[clap(subcommand, alias = "vars", hide = true)]
     Variables(VariablesCommand),
 }
 

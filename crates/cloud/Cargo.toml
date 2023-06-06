@@ -6,7 +6,7 @@ edition = { workspace = true }
 
 [dependencies]
 anyhow = "1.0"
-cloud-openapi = { git = "https://github.com/fermyon/cloud-openapi", rev = "e007319d3a8ab970c626d6ae3c100240a8d2ee60" }
+cloud-openapi = { git = "https://github.com/fermyon/cloud-openapi", rev = "98e7bd2ca97eab25c88dae5d6c65609577d36992" }
 mime_guess = { version = "2.0" }
 reqwest = { version = "0.11", features = ["stream"] }
 semver = "1.0"
