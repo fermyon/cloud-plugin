@@ -1,11 +1,11 @@
 #![allow(unused)]
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use bindle::Id;
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::client::{Client as CloudClient, ConnectionConfig};
 use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
+use oci_distribution::{token_cache, Reference, RegistryOperation};
 use rand::Rng;
 use semver::BuildMetadata;
 use sha2::{Digest, Sha256};
@@ -163,36 +163,41 @@ impl DeployCommand {
             None
         };
 
-        let su = Url::parse(login_connection.url.as_str())?;
-        let bindle_connection_info = BindleConnectionInfo::from_token(
-            su.join(BINDLE_REGISTRY_URL_PATH)?.to_string(),
-            login_connection.danger_accept_invalid_certs,
-            login_connection.token,
-        );
-
-        let bindle_id = self
-            .create_and_push_bindle(buildinfo, bindle_connection_info)
+        let app_file = crate::manifest::resolve_file_path(&self.app_source)?;
+        let dir = tempfile::tempdir()?;
+        let application = spin_loader::local::from_file(&app_file, Some(dir.path())).await?;
+        // TODO: Is there a more helpful value (oci ref) that we could return here to inform version
+        // or is buildinfo already appropriate?
+        let digest = self
+            .push_oci(
+                application.clone(),
+                buildinfo.clone(),
+                connection_config.clone(),
+            )
             .await?;
-        let name = bindle_id.name().to_string();
+
+        let name = application.info.name;
+        let storage_id = format!("oci://{}", name);
+        // FYI: From https://docs.docker.com/engine/reference/commandline/tag
+        // A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and hyphens.
+        // A tag name may not start with a period or a hyphen and may contain a maximum of 128 characters.
+        let version = buildinfo
+            .clone()
+            .context("Cannot parse build info")?
+            .to_string();
 
         println!("Deploying...");
-
         // Create or update app
         // TODO: this process involves many calls to Cloud. Should be able to update the channel
         // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
         let channel_id = match self.get_app_id_cloud(&client, name.clone()).await {
             Ok(app_id) => {
-                CloudClient::add_revision(
-                    &client,
-                    name.clone(),
-                    bindle_id.version_string().clone(),
-                )
-                .await?;
+                CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
                 let existing_channel_id = self
                     .get_channel_id_cloud(&client, SPIN_DEPLOY_CHANNEL_NAME.to_string(), app_id)
                     .await?;
                 let active_revision_id = self
-                    .get_revision_id_cloud(&client, bindle_id.version_string().clone(), app_id)
+                    .get_revision_id_cloud(&client, version.clone(), app_id)
                     .await?;
                 CloudClient::patch_channel(
                     &client,
@@ -223,7 +228,7 @@ impl DeployCommand {
                 existing_channel_id
             }
             Err(_) => {
-                let app_id = CloudClient::add_app(&client, &name, &name)
+                let app_id = CloudClient::add_app(&client, &name, &storage_id)
                     .await
                     .context("Unable to create app")?;
 
@@ -231,7 +236,7 @@ impl DeployCommand {
                 // which automatically imports all revisions from bindle into db
                 // therefore we do not need to call add_revision api explicitly here
                 let active_revision_id = self
-                    .get_revision_id_cloud(&client, bindle_id.version_string().clone(), app_id)
+                    .get_revision_id_cloud(&client, version.clone(), app_id)
                     .await?;
 
                 let channel_id = CloudClient::add_channel(
@@ -270,7 +275,7 @@ impl DeployCommand {
         if let Ok(http_config) = HttpTriggerConfiguration::try_from(cfg.info.trigger.clone()) {
             wait_for_ready(
                 &app_base_url,
-                &bindle_id.version_string(),
+                &version,
                 self.readiness_timeout_secs,
                 Destination::Cloud(connection_config.url),
             )
@@ -334,7 +339,7 @@ impl DeployCommand {
     async fn get_revision_id_cloud(
         &self,
         cloud_client: &CloudClient,
-        bindle_version: String,
+        version: String,
         app_id: Uuid,
     ) -> Result<Uuid> {
         let mut revisions = cloud_client.list_revisions().await?;
@@ -343,7 +348,7 @@ impl DeployCommand {
             if let Some(revision) = revisions
                 .items
                 .iter()
-                .find(|&x| x.revision_number == bindle_version && x.app_id == app_id)
+                .find(|&x| x.revision_number == version && x.app_id == app_id)
             {
                 return Ok(revision.id);
             }
@@ -357,7 +362,7 @@ impl DeployCommand {
 
         Err(anyhow!(
             "No revision with version {} and app id {}",
-            bindle_version,
+            version,
             app_id
         ))
     }
@@ -393,48 +398,46 @@ impl DeployCommand {
         ))
     }
 
-    async fn create_and_push_bindle(
+    async fn push_oci(
         &self,
+        application: spin_manifest::Application,
         buildinfo: Option<BuildMetadata>,
-        bindle_connection_info: BindleConnectionInfo,
-    ) -> Result<Id> {
-        let temp_dir = tempfile::tempdir()?;
-        let dest_dir = match &self.staging_dir {
-            None => temp_dir.path(),
-            Some(path) => path.as_path(),
+        connection_config: ConnectionConfig,
+    ) -> Result<Option<String>> {
+        let mut client = spin_oci::Client::new(connection_config.insecure, None).await?;
+
+        let cloud_url = Url::parse(connection_config.url.as_str())?;
+        let mut cloud_registry_url = cloud_url;
+        let _result = match cloud_registry_url.set_host(Some(
+            &("registry.".to_owned() + &cloud_registry_url.host_str().unwrap().to_owned()),
+        )) {
+            Err(err) => Err(anyhow!("Unable to construct cloud registry URL: {err:?}")),
+            Ok(()) => Ok(()),
         };
+        let reference = match buildinfo {
+            Some(buildinfo) => {
+                cloud_registry_url.domain().unwrap().to_owned()
+                    + "/"
+                    + &application.info.name
+                    + ":"
+                    + &buildinfo
+            }
+            None => cloud_registry_url.domain().unwrap().to_owned() + "/" + &application.info.name,
+        };
+        let oci_ref = Reference::try_from(reference.as_ref())
+            .expect(&format!("Could not parse reference '{reference}'"));
 
-        let bindle_id = spin_bindle::prepare_bindle(&self.app()?, buildinfo, dest_dir)
-            .await
-            .map_err(crate::wrap_prepare_bindle_error)?;
-
-        println!(
-            "Uploading {} version {}...",
-            bindle_id.name(),
-            bindle_id.version()
+        client.oci.tokens.insert(
+            &oci_ref,
+            RegistryOperation::Push,
+            token_cache::RegistryTokenType::Bearer(token_cache::RegistryToken::Token {
+                token: connection_config.token,
+            }),
         );
 
-        match spin_bindle::push_all(dest_dir, &bindle_id, bindle_connection_info.clone()).await {
-            Err(spin_bindle::PublishError::BindleAlreadyExists(err_msg)) => {
-                if self.redeploy {
-                    Ok(bindle_id.clone())
-                } else {
-                    Err(anyhow!(
-                        "Failed to push bindle to server.\n{}\nTry using the --deploy-existing-bindle flag",
-                        err_msg
-                    ))
-                }
-            }
-            Err(spin_bindle::PublishError::BindleClient(bindle::client::ClientError::Other(e)))
-                if e.to_string().contains("application exceeds") =>
-            {
-                Err(anyhow!(e.trim_start_matches("Unknown error: ").to_owned()))
-            }
-            Err(err) => Err(err).with_context(|| {
-                crate::push_all_failed_msg(dest_dir, bindle_connection_info.base_url())
-            }),
-            Ok(()) => Ok(bindle_id.clone()),
-        }
+        let digest = client.push(&application, reference).await?;
+
+        Ok(digest)
     }
 }
 
@@ -556,7 +559,7 @@ async fn is_ready(app_info_url: &str, expected_version: &str) -> Result<bool> {
     // If the app was previously deployed then it will have an outdated bindle
     // version, in which case the app isn't ready
     if let Ok(app_info) = resp.json::<AppInfo>().await {
-        let active_version = app_info.bindle_version;
+        let active_version = app_info.oci_image_digest;
         if active_version.as_deref() != Some(expected_version) {
             tracing::debug!("Active version {active_version:?} != expected {expected_version:?}");
             return Ok(false);
