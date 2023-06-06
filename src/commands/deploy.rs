@@ -155,8 +155,6 @@ impl DeployCommand {
         let buildinfo = if !self.no_buildinfo {
             match &self.buildinfo {
                 Some(i) => Some(i.clone()),
-                // FIXME(lann): As a workaround for buggy partial bindle uploads,
-                // force a new bindle version on every upload.
                 None => Some(random_buildinfo()),
             }
         } else {
@@ -166,6 +164,7 @@ impl DeployCommand {
         let app_file = crate::manifest::resolve_file_path(&self.app_source)?;
         let dir = tempfile::tempdir()?;
         let application = spin_loader::local::from_file(&app_file, Some(dir.path())).await?;
+
         // TODO: Is there a more helpful value (oci ref) that we could return here to inform version
         // or is buildinfo already appropriate?
         let digest = self
@@ -181,15 +180,16 @@ impl DeployCommand {
         // FYI: From https://docs.docker.com/engine/reference/commandline/tag
         // A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and hyphens.
         // A tag name may not start with a period or a hyphen and may contain a maximum of 128 characters.
-        let version = buildinfo
-            .clone()
-            .context("Cannot parse build info")?
-            .to_string();
+        let version = application.info.version
+            + "-"
+            + &buildinfo
+                .clone()
+                .context("Cannot parse build info")?
+                .to_string();
 
         println!("Deploying...");
+
         // Create or update app
-        // TODO: this process involves many calls to Cloud. Should be able to update the channel
-        // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
         let channel_id = match self.get_app_id_cloud(&client, name.clone()).await {
             Ok(app_id) => {
                 CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
@@ -232,9 +232,8 @@ impl DeployCommand {
                     .await
                     .context("Unable to create app")?;
 
-                // When creating the new app, InitialRevisionImport command is triggered
-                // which automatically imports all revisions from bindle into db
-                // therefore we do not need to call add_revision api explicitly here
+                CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
+
                 let active_revision_id = self
                     .get_revision_id_cloud(&client, version.clone(), app_id)
                     .await?;
@@ -275,9 +274,9 @@ impl DeployCommand {
         if let Ok(http_config) = HttpTriggerConfiguration::try_from(cfg.info.trigger.clone()) {
             wait_for_ready(
                 &app_base_url,
-                &version,
+                &digest.unwrap_or_default(),
                 self.readiness_timeout_secs,
-                Destination::Cloud(connection_config.url),
+                Destination::Cloud(connection_config.clone().url),
             )
             .await;
             print_available_routes(&app_base_url, &http_config.base, &cfg);
@@ -420,10 +419,13 @@ impl DeployCommand {
                     + "/"
                     + &application.info.name
                     + ":"
+                    + &application.info.version
+                    + "-"
                     + &buildinfo
             }
             None => cloud_registry_url.domain().unwrap().to_owned() + "/" + &application.info.name,
         };
+        println!("REFERENCE: {}", reference);
         let oci_ref = Reference::try_from(reference.as_ref())
             .expect(&format!("Could not parse reference '{reference}'"));
 
