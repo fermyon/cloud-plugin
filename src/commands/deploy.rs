@@ -110,7 +110,7 @@ pub struct DeployCommand {
     #[clap(long = "key-value", parse(try_from_str = parse_kv))]
     pub key_values: Vec<(String, String)>,
 
-    /// Set a variable pair (variable=value) in the deployed application.
+    /// Set a variable (variable=value) in the deployed application.
     /// Any existing value will be overwritten.
     /// Can be used multiple times.
     #[clap(long = "variable", parse(try_from_str = parse_kv), hide = true)]

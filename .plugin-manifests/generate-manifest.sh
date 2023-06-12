@@ -33,7 +33,7 @@ WINDOWS_AMD=$(cat $2 | grep "windows-amd64" | awk '{print $1}')
 cat <<EOF 
 {
   "name": "cloud",
-  "description": "The Fermyon Cloud Plugin",
+  "description": "Commands for publishing applications to the Fermyon Cloud.",
   "homepage": "https://github.com/fermyon/cloud-plugin",
   "version": "${VERSION//v}",
   "spinCompatibility": "${SPIN_COMPAT_STRING}",
