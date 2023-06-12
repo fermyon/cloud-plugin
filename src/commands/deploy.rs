@@ -113,7 +113,7 @@ pub struct DeployCommand {
     /// Set a variable (variable=value) in the deployed application.
     /// Any existing value will be overwritten.
     /// Can be used multiple times.
-    #[clap(long = "variable", parse(try_from_str = parse_kv), hide = true)]
+    #[clap(long = "variable", parse(try_from_str = parse_kv))]
     pub variables: Vec<(String, String)>,
 }
 
