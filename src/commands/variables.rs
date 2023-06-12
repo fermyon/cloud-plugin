@@ -20,9 +20,9 @@ struct Variable {
 #[derive(Parser, Debug)]
 #[clap(about = "Manage Spin application variables")]
 pub enum VariablesCommand {
-    /// Set variable pairs
+    /// Set variables
     Set(SetCommand),
-    /// Delete variable pairs
+    /// Delete variables
     Delete(DeleteCommand),
     /// List all variables of an application
     List(ListCommand),
