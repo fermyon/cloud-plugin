@@ -1,4 +1,4 @@
-pub const DEFAULT_MANIFEST_FILE: &str = "spin.toml";
+pub const DEFAULT_MANIFEST_FILE: &str = spin_common::paths::DEFAULT_MANIFEST_FILE;
 pub const APP_MANIFEST_FILE_OPT: &str = "APP_MANIFEST_FILE";
 pub const BUILDINFO_OPT: &str = "BUILDINFO";
 pub const INSECURE_OPT: &str = "INSECURE";

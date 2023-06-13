@@ -129,7 +129,7 @@ impl DeployCommand {
     }
 
     fn app(&self) -> anyhow::Result<PathBuf> {
-        crate::manifest::resolve_file_path(&self.app_source)
+        spin_common::paths::resolve_manifest_file_path(&self.app_source)
     }
 
     async fn deploy_cloud(self, login_connection: LoginConnection) -> Result<()> {
