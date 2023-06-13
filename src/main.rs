@@ -8,8 +8,18 @@ use semver::BuildMetadata;
 use spin_bindle::PublishError;
 use std::path::Path;
 
+/// Returns build information, similar to: 0.1.0 (2be4034 2022-03-31).
+const VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("VERGEN_GIT_SHA"),
+    " ",
+    env!("VERGEN_GIT_COMMIT_DATE"),
+    ")"
+);
+
 #[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
+#[clap(author, version = VERSION, about, long_about = None)]
 #[clap(propagate_version = true)]
 enum CloudCli {
     /// Package and upload an application to the Fermyon Cloud.
