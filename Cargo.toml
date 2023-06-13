@@ -48,3 +48,10 @@ openssl = { version = "0.10" }
 [workspace.dependencies]
 tracing = { version = "0.1", features = ["log"] }
 
+[build-dependencies]
+vergen = { version = "^8.2.1", default-features = false, features = [
+  "build",
+  "git",
+  "gitcl",
+  "cargo",
+] }
