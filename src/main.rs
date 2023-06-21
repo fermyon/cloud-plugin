@@ -1,7 +1,7 @@
 mod commands;
 mod opts;
 use anyhow::{anyhow, Error, Result};
-use clap::Parser;
+use clap::{FromArgMatches, Parser};
 use commands::{deploy::DeployCommand, login::LoginCommand, variables::VariablesCommand};
 use semver::BuildMetadata;
 use spin_bindle::PublishError;
@@ -32,7 +32,11 @@ enum CloudCli {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let cli = CloudCli::parse();
+    let mut app = CloudCli::clap();
+    // Plugin should always be invoked from Spin so set binary name accordingly
+    app.set_bin_name("spin cloud");
+    let matches = app.get_matches();
+    let cli = CloudCli::from_arg_matches(&matches)?;
 
     match cli {
         CloudCli::Deploy(cmd) => cmd.run().await,
