@@ -30,13 +30,13 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: create tar file
-      run:|
+      run: |
         cp target/release/cloud-plugin cloud
         tar -cvf cloud.tar.gz cloud
         cp cloud.tar.gz spin-app/assets/
 
     - name: create tar file
-      run:|
+      run: |
         cp target/release/cloud-plugin cloud
         tar -cvf cloud.tar.gz cloud
         cp cloud.tar.gz spin-app/assets/
