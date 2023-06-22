@@ -1,0 +1,13 @@
+spin_manifest_version = "1"
+authors = ["Rajat Jindal <rajatjindal83@gmail.com>"]
+description = ""
+name = "spin-app"
+trigger = { type = "http", base = "/" }
+version = "0.1.0"
+
+[[component]]
+source = { url = "https://github.com/fermyon/spin-fileserver/releases/download/v0.0.2/spin_static_fs.wasm", digest = "sha256:65456bf4e84cf81b62075e761b2b0afaffaef2d0aeda521b245150f76b96421b" }
+id = "spin-app"
+files = [ { source = "assets", destination = "/" } ]
+[component.trigger]
+route = "/..."
