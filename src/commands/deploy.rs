@@ -430,7 +430,7 @@ impl DeployCommand {
         let oci_ref = Reference::try_from(reference.as_ref())
             .expect(&format!("Could not parse reference '{reference}'"));
 
-        client.oci.tokens.insert(
+        client.insert_token(
             &oci_ref,
             RegistryOperation::Push,
             token_cache::RegistryTokenType::Bearer(token_cache::RegistryToken::Token {
