@@ -12,8 +12,8 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-struct Variable {
-    key: String,
+pub(crate) struct Variable {
+    pub key: String,
 }
 
 /// Manage Spin application variables
@@ -108,12 +108,7 @@ impl VariablesCommand {
                 let info =
                     AppManagmentInfo::new(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
                         .await?;
-                let vars = get_variables(&info.client, info.app_id).await?;
-                let var_names = vars
-                    .iter()
-                    .map(|var| from_str(var))
-                    .collect::<Result<Vec<Variable>, _>>()
-                    .context("could not parse variable")?;
+                let var_names = get_variables(&info.client, info.app_id).await?;
                 for v in var_names {
                     println!("{}", v.key);
                 }
@@ -149,9 +144,19 @@ pub(crate) async fn delete_variables(
     Ok(())
 }
 
-pub(crate) async fn get_variables(client: &CloudClient, app_id: Uuid) -> Result<Vec<String>> {
+async fn get_variables_json(client: &CloudClient, app_id: Uuid) -> Result<Vec<String>> {
     let vars = CloudClient::get_variable_pairs(client, app_id)
         .await
         .context("Problem listing variables")?;
     Ok(vars)
+}
+
+pub(crate) async fn get_variables(client: &CloudClient, app_id: Uuid) -> Result<Vec<Variable>> {
+    let vars = get_variables_json(client, app_id).await?;
+    let var_names = vars
+        .iter()
+        .map(|var| from_str(var))
+        .collect::<Result<Vec<Variable>, _>>()
+        .context("could not parse variable")?;
+    Ok(var_names)
 }

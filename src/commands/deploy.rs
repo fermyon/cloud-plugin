@@ -25,6 +25,7 @@ use tokio::fs;
 use tracing::instrument;
 
 use std::{
+    collections::HashSet,
     fs::File,
     io::{self, copy, Write},
     path::PathBuf,
@@ -32,7 +33,7 @@ use std::{
 use url::Url;
 use uuid::Uuid;
 
-use crate::commands::variables::set_variables;
+use crate::commands::variables::{get_variables, set_variables, Variable};
 
 use crate::{
     commands::login::{LoginCommand, LoginConnection},
@@ -145,6 +146,7 @@ impl DeployCommand {
         let cfg = cfg_any.into_v1();
 
         validate_cloud_app(&cfg)?;
+        self.validate_deployment_environment(&cfg, &client).await?;
 
         match cfg.info.trigger {
             ApplicationTrigger::Http(_) => {}
@@ -322,12 +324,92 @@ impl DeployCommand {
         Ok(buildinfo)
     }
 
+    async fn validate_deployment_environment(
+        &self,
+        app: &RawAppManifest,
+        client: &CloudClient,
+    ) -> Result<()> {
+        let required_variables = app
+            .variables
+            .iter()
+            .filter(|(_, v)| v.required)
+            .map(|(k, _)| k)
+            .collect::<HashSet<_>>();
+        if !required_variables.is_empty() {
+            self.ensure_variables_present(&required_variables, client, &app.info.name)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn ensure_variables_present(
+        &self,
+        required_variables: &HashSet<&String>,
+        client: &CloudClient,
+        app_name: &str,
+    ) -> Result<()> {
+        // Are all required variables satisifed by variables passed in this command?
+        let provided_variables = self.variables.iter().map(|(k, _)| k).collect();
+        let unprovided_variables = required_variables
+            .difference(&provided_variables)
+            .copied()
+            .collect::<HashSet<_>>();
+        if unprovided_variables.is_empty() {
+            return Ok(());
+        }
+
+        // Are all remaining required variables satisfied by variables already in the cloud?
+        let extant_variables = match self
+            .try_get_app_id_cloud(client, app_name.to_string())
+            .await
+        {
+            Ok(Some(app_id)) => match get_variables(client, app_id).await {
+                Ok(variables) => variables,
+                Err(_) => {
+                    // Don't block deployment for being unable to check the variables.
+                    eprintln!("Unable to confirm variables {unprovided_variables:?} are defined. Check your app after deployment.");
+                    return Ok(());
+                }
+            },
+            Ok(None) => vec![],
+            Err(_) => {
+                // Don't block deployment for being unable to check the variables.
+                eprintln!("Unable to confirm variables {unprovided_variables:?} are defined. Check your app after deployment.");
+                return Ok(());
+            }
+        };
+        let extant_variables = extant_variables.iter().map(|v| &v.key).collect();
+        let unprovided_variables = unprovided_variables
+            .difference(&extant_variables)
+            .map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        if unprovided_variables.is_empty() {
+            return Ok(());
+        }
+
+        let list_text = unprovided_variables.join(", ");
+        Err(anyhow!("The application requires values for the following variable(s) which have not been set: {list_text}. Use the --variable flag to provide values."))
+    }
+
     async fn get_app_id_cloud(&self, cloud_client: &CloudClient, name: String) -> Result<Uuid> {
         let apps_vm = CloudClient::list_apps(cloud_client).await?;
         let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
         match app {
             Some(a) => Ok(a.id),
             None => bail!("No app with name: {}", name),
+        }
+    }
+
+    async fn try_get_app_id_cloud(
+        &self,
+        cloud_client: &CloudClient,
+        name: String,
+    ) -> Result<Option<Uuid>> {
+        let apps_vm = CloudClient::list_apps(cloud_client).await?;
+        let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
+        match app {
+            Some(a) => Ok(Some(a.id)),
+            None => Ok(None),
         }
     }
 
