@@ -1,4 +1,3 @@
-use std::io::{stdin, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -295,10 +294,6 @@ impl LoginCommand {
             method.clone()
         } else if self.get_device_code || self.check_device_code.is_some() {
             AuthMethod::Github
-        } else if self.cloud_url.as_str() != DEFAULT_CLOUD_URL {
-            // prompt the user for the authentication method
-            // TODO: implement a server "feature" check that tells us what authentication methods it supports
-            prompt_for_auth_method()
         } else if self.token.is_some() {
             AuthMethod::Token
         } else {
@@ -422,27 +417,6 @@ pub enum AuthMethod {
     Github,
     #[clap(name = "token")]
     Token,
-}
-
-fn prompt_for_auth_method() -> AuthMethod {
-    loop {
-        // prompt the user for the authentication method
-        print!("What authentication method does this server support?\n\n1. Sign in with GitHub\n2. Sign in with a username and password\n\nEnter a number: ");
-        std::io::stdout().flush().unwrap();
-        let mut input = String::new();
-        stdin()
-            .read_line(&mut input)
-            .expect("unable to read user input");
-
-        match input.trim() {
-            "1" => {
-                return AuthMethod::Github;
-            }
-            _ => {
-                println!("invalid input. Please enter either 1 or 2.");
-            }
-        }
-    }
 }
 
 enum TokenReadiness {
