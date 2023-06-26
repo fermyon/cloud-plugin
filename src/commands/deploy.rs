@@ -532,6 +532,12 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
         {
             bail!("Invalid store {invalid_store:?} for component {:?}. Cloud currently supports only the 'default' store.", component.id);
         }
+
+        if let Some(dbs) = component.wasm.sqlite_databases.as_ref() {
+            if !dbs.is_empty() {
+                bail!("Component {:?} uses SQLite database storage, which is not yet supported in Cloud.", component.id);
+            }
+        }
     }
     Ok(())
 }
