@@ -10,7 +10,7 @@ use rand::Rng;
 use semver::BuildMetadata;
 use sha2::{Digest, Sha256};
 use spin_common::{arg_parser::parse_kv, sloth};
-use spin_http::routes::RoutePattern;
+use spin_http::{app_info::AppInfo, routes::RoutePattern};
 use spin_loader::{
     bindle::BindleConnectionInfo,
     local::{
@@ -20,7 +20,6 @@ use spin_loader::{
     },
 };
 use spin_manifest::{ApplicationTrigger, HttpTriggerConfiguration, TriggerConfig};
-use spin_trigger_http::AppInfo;
 use tokio::fs;
 use tracing::instrument;
 
