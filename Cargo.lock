@@ -442,7 +442,7 @@ dependencies = [
 [[package]]
 name = "cloud-openapi"
 version = "0.1.0"
-source = "git+https://github.com/fermyon/cloud-openapi?rev=98e7bd2ca97eab25c88dae5d6c65609577d36992#98e7bd2ca97eab25c88dae5d6c65609577d36992"
+source = "git+https://github.com/kate-goldenring/cloud-openapi?rev=5b02f49d8e78c4c246224bdc6b7cdb88c5747758#5b02f49d8e78c4c246224bdc6b7cdb88c5747758"
 dependencies = [
  "reqwest",
  "serde",
@@ -463,6 +463,7 @@ dependencies = [
  "clap",
  "cloud",
  "cloud-openapi",
+ "dialoguer",
  "dirs 5.0.1",
  "openssl",
  "rand 0.8.5",
@@ -483,6 +484,19 @@ dependencies = [
  "url",
  "uuid",
  "vergen",
+]
+
+[[package]]
+name = "console"
+version = "0.15.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c926e00cc70edefdc64d3a5ff31cc65bb97a3460097762bd23afb4d8145fccf8"
+dependencies = [
+ "encode_unicode",
+ "lazy_static",
+ "libc",
+ "unicode-width",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
@@ -813,6 +827,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dialoguer"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59c6f2989294b9a498d3ad5491a79c6deb604617378e1cdc4bfc1c1361fe2f87"
+dependencies = [
+ "console",
+ "shell-words",
+ "tempfile",
+ "zeroize",
+]
+
+[[package]]
 name = "digest"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -933,6 +959,12 @@ name = "either"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
+
+[[package]]
+name = "encode_unicode"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
 
 [[package]]
 name = "encoding_rs"
@@ -2619,6 +2651,12 @@ dependencies = [
  "cpufeatures",
  "digest 0.10.7",
 ]
+
+[[package]]
+name = "shell-words"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24188a676b6ae68c3b2cb3a01be17fbf7240ce009799bb56d5b1409051e78fde"
 
 [[package]]
 name = "shellexpand"

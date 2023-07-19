@@ -12,6 +12,9 @@ use cloud_openapi::{
         device_codes_api::api_device_codes_post,
         key_value_pairs_api::api_key_value_pairs_post,
         revisions_api::{api_revisions_get, api_revisions_post},
+        sql_databases_api::{
+            api_sql_databases_delete, api_sql_databases_get, api_sql_databases_post,
+        },
         variable_pairs_api::{
             api_variable_pairs_delete, api_variable_pairs_get, api_variable_pairs_post,
         },
@@ -20,9 +23,10 @@ use cloud_openapi::{
     models::{
         AppItemPage, ChannelItem, ChannelItemPage, ChannelRevisionSelectionStrategy,
         CreateAppCommand, CreateChannelCommand, CreateDeviceCodeCommand, CreateKeyValuePairCommand,
-        CreateVariablePairCommand, DeleteVariablePairCommand, DeviceCodeItem, GetChannelLogsVm,
-        GetVariablesQuery, RefreshTokenCommand, RegisterRevisionCommand, RevisionItemPage,
-        TokenInfo, UpdateEnvironmentVariableDto,
+        CreateSqlDatabaseCommand, CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand,
+        DeleteVariablePairCommand, DeviceCodeItem, EnvironmentVariableItem, GetChannelLogsVm,
+        GetSqlDatabasesQuery, GetVariablesQuery, RefreshTokenCommand, RegisterRevisionCommand,
+        RevisionItemPage, TokenInfo,
     },
 };
 use reqwest::header;
@@ -125,12 +129,18 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn add_app(&self, name: &str, storage_id: &str) -> Result<Uuid> {
+    pub async fn add_app(
+        &self,
+        name: &str,
+        storage_id: &str,
+        create_default_database: bool,
+    ) -> Result<Uuid> {
         api_apps_post(
             &self.configuration,
             CreateAppCommand {
                 name: name.to_string(),
                 storage_id: storage_id.to_string(),
+                create_default_database: Some(create_default_database),
             },
             None,
         )
@@ -211,7 +221,7 @@ impl Client {
         revision_selection_strategy: Option<ChannelRevisionSelectionStrategy>,
         range_rule: Option<String>,
         active_revision_id: Option<Uuid>,
-        environment_variables: Option<Vec<UpdateEnvironmentVariableDto>>,
+        environment_variables: Option<Vec<EnvironmentVariableItem>>,
     ) -> anyhow::Result<()> {
         let patch_channel_command = PatchChannelCommand {
             channel_id: Some(id),
@@ -374,6 +384,38 @@ impl Client {
             .map_err(format_response_error)?;
         Ok(list.vars)
     }
+
+    pub async fn create_database(&self, app_id: Option<Uuid>, name: String) -> anyhow::Result<()> {
+        api_sql_databases_post(
+            &self.configuration,
+            CreateSqlDatabaseCommand {
+                name,
+                app_id: Some(app_id),
+            },
+            None,
+        )
+        .await
+        .map_err(format_response_error)
+    }
+
+    pub async fn delete_database(&self, name: String) -> anyhow::Result<()> {
+        api_sql_databases_delete(&self.configuration, DeleteSqlDatabaseCommand { name }, None)
+            .await
+            .map_err(format_response_error)
+    }
+
+    pub async fn get_databases(&self, app_id: Option<Uuid>) -> anyhow::Result<Vec<Database>> {
+        let list = api_sql_databases_get(
+            &self.configuration,
+            GetSqlDatabasesQuery {
+                app_id: Some(app_id),
+            },
+            None,
+        )
+        .await
+        .map_err(format_response_error)?;
+        Ok(list.databases)
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -414,7 +456,7 @@ pub struct PatchChannelCommand {
         rename = "environmentVariables",
         skip_serializing_if = "Option::is_none"
     )]
-    pub environment_variables: Option<Vec<UpdateEnvironmentVariableDto>>,
+    pub environment_variables: Option<Vec<EnvironmentVariableItem>>,
     #[serde(rename = "name", skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(

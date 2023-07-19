@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::client::{Client as CloudClient, ConnectionConfig};
 use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
+use cloud_openapi::models::Database;
 use rand::Rng;
 use semver::BuildMetadata;
 use sha2::{Digest, Sha256};
@@ -42,6 +43,7 @@ use crate::{
 
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
+const SPIN_DEFAULT_DATABASE: &str = "default";
 const BINDLE_REGISTRY_URL_PATH: &str = "api/registry";
 
 /// Package and upload an application to the Fermyon Cloud.
@@ -183,6 +185,16 @@ impl DeployCommand {
         // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
         let channel_id = match self.get_app_id_cloud(&client, name.clone()).await {
             Ok(app_id) => {
+                let databases: Vec<String> = cfg
+                    .components
+                    .iter()
+                    .cloned()
+                    .filter_map(|c| c.wasm.sqlite_databases)
+                    .flatten()
+                    .collect();
+                if !databases.is_empty() {
+                    create_default_database_if_does_not_exist(&name, app_id, &client).await?;
+                }
                 CloudClient::add_revision(
                     &client,
                     name.clone(),
@@ -224,7 +236,16 @@ impl DeployCommand {
                 existing_channel_id
             }
             Err(_) => {
-                let app_id = CloudClient::add_app(&client, &name, &name)
+                let uses_default_db = cfg
+                    .components
+                    .iter()
+                    .cloned()
+                    .filter_map(|c| c.wasm.sqlite_databases)
+                    .flatten()
+                    .find(|db| db == SPIN_DEFAULT_DATABASE);
+                let create_default_db =
+                    uses_default_db.is_some() && prompt_create_database(SPIN_DEFAULT_DATABASE)?;
+                let app_id = CloudClient::add_app(&client, &name, &name, create_default_db)
                     .await
                     .context("Unable to create app")?;
 
@@ -527,18 +548,50 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
             .key_value_stores
             .iter()
             .flatten()
-            .find(|store| *store != "default")
+            .find(|store| *store != SPIN_DEFAULT_KV_STORE)
         {
             bail!("Invalid store {invalid_store:?} for component {:?}. Cloud currently supports only the 'default' store.", component.id);
         }
 
-        if let Some(dbs) = component.wasm.sqlite_databases.as_ref() {
-            if !dbs.is_empty() {
-                bail!("Component {:?} uses SQLite database storage, which is not yet supported in Cloud.", component.id);
-            }
+        if let Some(invalid_db) = component
+            .wasm
+            .sqlite_databases
+            .iter()
+            .flatten()
+            .find(|db: &&String| *db != SPIN_DEFAULT_DATABASE)
+        {
+            bail!("Invalid database {invalid_db:?} for component {:?}. Cloud currently supports only the 'default' SQLite databases.", component.id);
         }
     }
     Ok(())
+}
+
+async fn create_default_database_if_does_not_exist(
+    app_name: &str,
+    app_id: Uuid,
+    client: &CloudClient,
+) -> Result<()> {
+    let default_db = client
+        .get_databases(Some(app_id))
+        .await?
+        .into_iter()
+        .find(|d| d.default);
+
+    if default_db.is_none() && prompt_create_database(SPIN_DEFAULT_DATABASE)? {
+        client
+            .create_database(Some(app_id), SPIN_DEFAULT_DATABASE.to_string())
+            .await?;
+    }
+    Ok(())
+}
+
+fn prompt_create_database(database_name: &str) -> std::io::Result<bool> {
+    use dialoguer::Confirm;
+    let prompt = format!(
+        "App requires {} database which does not exist. Create it?",
+        database_name
+    );
+    Confirm::new().with_prompt(prompt).interact()
 }
 
 fn random_buildinfo() -> BuildMetadata {
