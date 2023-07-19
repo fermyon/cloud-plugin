@@ -860,9 +860,9 @@ pub async fn login_connection(deployment_env_id: Option<&str>) -> Result<LoginCo
     Ok(login_connection)
 }
 
-pub async fn get_app_id_cloud(cloud_client: &CloudClient, name: String) -> Result<Uuid> {
+pub async fn get_app_id_cloud(cloud_client: &CloudClient, name: &str) -> Result<Uuid> {
     let apps_vm = CloudClient::list_apps(cloud_client).await?;
-    let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
+    let app = apps_vm.items.iter().find(|&x| x.name == name);
     match app {
         Some(a) => Ok(a.id),
         None => bail!("No app with name: {}", name),
