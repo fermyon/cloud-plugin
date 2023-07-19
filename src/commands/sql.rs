@@ -10,21 +10,10 @@ use crate::opts::*;
 #[derive(Parser, Debug)]
 #[clap(about = "Manage Fermyon Cloud SQL databases")]
 pub enum SqlCommand {
-    /// Create a SQL database
-    #[clap(hide = true)]
-    Create(CreateCommand),
     /// Delete a SQL database
     Delete(DeleteCommand),
     /// List all SQL databases of a user
     List(ListCommand),
-}
-
-#[derive(Parser, Debug)]
-pub struct CreateCommand {
-    /// Name of database to create
-    name: String,
-    #[clap(flatten)]
-    common: CommonArgs,
 }
 
 #[derive(Parser, Debug)]
@@ -56,12 +45,6 @@ struct CommonArgs {
 impl SqlCommand {
     pub async fn run(self) -> Result<()> {
         match self {
-            Self::Create(cmd) => {
-                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                CloudClient::create_database(&client, None, cmd.name.clone())
-                    .await
-                    .with_context(|| format!("Problem creating database {}", cmd.name))?;
-            }
             Self::Delete(cmd) => {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
                 CloudClient::delete_database(&client, cmd.name.clone())
