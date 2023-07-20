@@ -6,13 +6,13 @@ use cloud_openapi::models::Database;
 use crate::commands::create_cloud_client;
 use crate::opts::*;
 
-/// Manage Fermyon Cloud SQL databases
+/// Manage Fermyon Cloud SQLite databases
 #[derive(Parser, Debug)]
-#[clap(about = "Manage Fermyon Cloud SQL databases")]
-pub enum SqlCommand {
-    /// Delete a SQL database
+#[clap(about = "Manage Fermyon Cloud SQLite databases")]
+pub enum SqliteCommand {
+    /// Delete a SQLite database
     Delete(DeleteCommand),
-    /// List all SQL databases of a user
+    /// List all SQLite databases of a user
     List(ListCommand),
 }
 
@@ -42,7 +42,7 @@ struct CommonArgs {
     pub deployment_env_id: Option<String>,
 }
 
-impl SqlCommand {
+impl SqliteCommand {
     pub async fn run(self) -> Result<()> {
         match self {
             Self::Delete(cmd) => {

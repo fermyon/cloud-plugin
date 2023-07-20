@@ -1,6 +1,6 @@
 pub mod deploy;
 pub mod login;
-pub mod sql;
+pub mod sqlite;
 pub mod variables;
 
 use crate::commands::deploy::login_connection;
