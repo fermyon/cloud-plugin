@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::client::{Client as CloudClient, ConnectionConfig};
 use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
+use cloud_openapi::models::Database;
 use rand::Rng;
 use semver::BuildMetadata;
 use sha2::{Digest, Sha256};
@@ -42,6 +43,7 @@ use crate::{
 
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
+const SPIN_DEFAULT_DATABASE: &str = "default";
 const BINDLE_REGISTRY_URL_PATH: &str = "api/registry";
 
 /// Package and upload an application to the Fermyon Cloud.
@@ -183,6 +185,9 @@ impl DeployCommand {
         // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
         let channel_id = match self.get_app_id_cloud(&client, name.clone()).await {
             Ok(app_id) => {
+                if uses_default_db(&cfg) {
+                    create_default_database_if_does_not_exist(&name, app_id, &client).await?;
+                }
                 CloudClient::add_revision(
                     &client,
                     name.clone(),
@@ -224,7 +229,8 @@ impl DeployCommand {
                 existing_channel_id
             }
             Err(_) => {
-                let app_id = CloudClient::add_app(&client, &name, &name)
+                let create_default_db = uses_default_db(&cfg);
+                let app_id = CloudClient::add_app(&client, &name, &name, create_default_db)
                     .await
                     .context("Unable to create app")?;
 
@@ -527,18 +533,50 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
             .key_value_stores
             .iter()
             .flatten()
-            .find(|store| *store != "default")
+            .find(|store| *store != SPIN_DEFAULT_KV_STORE)
         {
             bail!("Invalid store {invalid_store:?} for component {:?}. Cloud currently supports only the 'default' store.", component.id);
         }
 
-        if let Some(dbs) = component.wasm.sqlite_databases.as_ref() {
-            if !dbs.is_empty() {
-                bail!("Component {:?} uses SQLite database storage, which is not yet supported in Cloud.", component.id);
-            }
+        if let Some(invalid_db) = component
+            .wasm
+            .sqlite_databases
+            .iter()
+            .flatten()
+            .find(|db| *db != SPIN_DEFAULT_DATABASE)
+        {
+            bail!("Invalid database {invalid_db:?} for component {:?}. Cloud currently supports only the 'default' SQLite databases.", component.id);
         }
     }
     Ok(())
+}
+
+async fn create_default_database_if_does_not_exist(
+    app_name: &str,
+    app_id: Uuid,
+    client: &CloudClient,
+) -> Result<()> {
+    let default_db = client
+        .get_databases(Some(app_id))
+        .await?
+        .into_iter()
+        .find(|d| d.default);
+
+    if default_db.is_none() {
+        client
+            .create_database(Some(app_id), SPIN_DEFAULT_DATABASE.to_string())
+            .await?;
+    }
+    Ok(())
+}
+
+fn uses_default_db(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> bool {
+    cfg.components
+        .iter()
+        .cloned()
+        .filter_map(|c| c.wasm.sqlite_databases)
+        .flatten()
+        .any(|db| db == SPIN_DEFAULT_DATABASE)
 }
 
 fn random_buildinfo() -> BuildMetadata {
@@ -807,9 +845,9 @@ pub async fn login_connection(deployment_env_id: Option<&str>) -> Result<LoginCo
     Ok(login_connection)
 }
 
-pub async fn get_app_id_cloud(cloud_client: &CloudClient, name: String) -> Result<Uuid> {
+pub async fn get_app_id_cloud(cloud_client: &CloudClient, name: &str) -> Result<Uuid> {
     let apps_vm = CloudClient::list_apps(cloud_client).await?;
-    let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
+    let app = apps_vm.items.iter().find(|&x| x.name == name);
     match app {
         Some(a) => Ok(a.id),
         None => bail!("No app with name: {}", name),

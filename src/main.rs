@@ -1,8 +1,11 @@
 mod commands;
 mod opts;
+
 use anyhow::{anyhow, Error, Result};
 use clap::{FromArgMatches, Parser};
-use commands::{deploy::DeployCommand, login::LoginCommand, variables::VariablesCommand};
+use commands::{
+    deploy::DeployCommand, login::LoginCommand, sqlite::SqliteCommand, variables::VariablesCommand,
+};
 use semver::BuildMetadata;
 use spin_bindle::PublishError;
 use std::path::Path;
@@ -28,6 +31,9 @@ enum CloudCli {
     /// Manage Spin application variables
     #[clap(subcommand, alias = "vars")]
     Variables(VariablesCommand),
+    /// Manage Fermyon Cloud SQLite databases
+    #[clap(subcommand)]
+    Sqlite(SqliteCommand),
 }
 
 #[tokio::main]
@@ -42,6 +48,7 @@ async fn main() -> Result<(), Error> {
         CloudCli::Deploy(cmd) => cmd.run().await,
         CloudCli::Login(cmd) => cmd.run().await,
         CloudCli::Variables(cmd) => cmd.run().await,
+        CloudCli::Sqlite(cmd) => cmd.run().await,
     }
 }
 

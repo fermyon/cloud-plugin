@@ -19,8 +19,9 @@ bindle = { git = "https://github.com/fermyon/bindle", tag = "v0.8.2", default-fe
 chrono = "0.4"
 clap = { version = "3.2.24", features = ["derive", "env"] }
 cloud = { path = "crates/cloud" }
-cloud-openapi = { git = "https://github.com/fermyon/cloud-openapi", rev = "98e7bd2ca97eab25c88dae5d6c65609577d36992" }
+cloud-openapi = { git = "https://github.com/fermyon/cloud-openapi", rev = "dbf4657ef4e70433aea17210a539202443e2ce96" }
 dirs = "5.0"
+dialoguer = "0.10"
 tokio = { version = "1.23", features = ["full"] }
 tracing = { workspace = true }
 rand = "0.8"
