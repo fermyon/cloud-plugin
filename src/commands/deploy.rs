@@ -229,8 +229,7 @@ impl DeployCommand {
                 existing_channel_id
             }
             Err(_) => {
-                let create_default_db =
-                    uses_default_db(&cfg) && prompt_create_database(SPIN_DEFAULT_DATABASE)?;
+                let create_default_db = uses_default_db(&cfg);
                 let app_id = CloudClient::add_app(&client, &name, &name, create_default_db)
                     .await
                     .context("Unable to create app")?;
@@ -544,7 +543,7 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
             .sqlite_databases
             .iter()
             .flatten()
-            .find(|db: &&String| *db != SPIN_DEFAULT_DATABASE)
+            .find(|db| *db != SPIN_DEFAULT_DATABASE)
         {
             bail!("Invalid database {invalid_db:?} for component {:?}. Cloud currently supports only the 'default' SQLite databases.", component.id);
         }
@@ -563,7 +562,7 @@ async fn create_default_database_if_does_not_exist(
         .into_iter()
         .find(|d| d.default);
 
-    if default_db.is_none() && prompt_create_database(SPIN_DEFAULT_DATABASE)? {
+    if default_db.is_none() {
         client
             .create_database(Some(app_id), SPIN_DEFAULT_DATABASE.to_string())
             .await?;
@@ -578,15 +577,6 @@ fn uses_default_db(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> bool {
         .filter_map(|c| c.wasm.sqlite_databases)
         .flatten()
         .any(|db| db == SPIN_DEFAULT_DATABASE)
-}
-
-fn prompt_create_database(database_name: &str) -> std::io::Result<bool> {
-    use dialoguer::Confirm;
-    let prompt = format!(
-        "App requires {} database which does not exist. Create it?",
-        database_name
-    );
-    Confirm::new().with_prompt(prompt).interact()
 }
 
 fn random_buildinfo() -> BuildMetadata {

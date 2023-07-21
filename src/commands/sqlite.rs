@@ -19,8 +19,13 @@ pub enum SqliteCommand {
 
 #[derive(Parser, Debug)]
 pub struct DeleteCommand {
-    /// Name of database to create
+    /// Name of database to delete
     name: String,
+
+    /// Skips prompt to confirm deletion of database
+    #[clap(short = 'y', long = "yes", takes_value = false)]
+    yes: bool,
+
     #[clap(flatten)]
     common: CommonArgs,
 }
@@ -48,15 +53,21 @@ impl SqliteCommand {
         match self {
             Self::Delete(cmd) => {
                 // TODO: Fail if apps exist that are currently using a database
-                prompt_delete_database(&cmd.name)?;
-                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                CloudClient::delete_database(&client, cmd.name.clone())
-                    .await
-                    .with_context(|| format!("Problem deleting database {}", cmd.name))?;
+                if cmd.yes || prompt_delete_database(&cmd.name)? {
+                    let client =
+                        create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
+                    CloudClient::delete_database(&client, cmd.name.clone())
+                        .await
+                        .with_context(|| format!("Problem deleting database {}", cmd.name))?;
+                    println!("Database \"{}\" deleted", cmd.name);
+                }
             }
             Self::List(cmd) => {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                list_databases(&client).await?;
+                let list = CloudClient::get_databases(&client, None)
+                    .await
+                    .context("Problem listing databases")?;
+                print_databases(list);
             }
         }
         Ok(())
@@ -70,15 +81,7 @@ fn print_databases(databases: Vec<Database>) {
     }
 }
 
-pub(crate) async fn list_databases(client: &CloudClient) -> Result<()> {
-    let list: Vec<cloud_openapi::models::Database> = CloudClient::get_databases(client, None)
-        .await
-        .context("Problem listing databases")?;
-    print_databases(list);
-    Ok(())
-}
-
-fn prompt_delete_database(database_name: &str) -> std::io::Result<()> {
+fn prompt_delete_database(database_name: &str) -> std::io::Result<bool> {
     let mut input = Input::<String>::new();
     let prompt =
         format!("The action is irreversible. Please type \"{database_name}\" for confirmation.",);
@@ -86,8 +89,9 @@ fn prompt_delete_database(database_name: &str) -> std::io::Result<()> {
     let answer = input.interact_text()?;
     if answer != database_name {
         println!("Invalid confirmation. Will not delete database.");
+        Ok(false)
     } else {
         println!("Deleting database ...");
+        Ok(true)
     }
-    Ok(())
 }
