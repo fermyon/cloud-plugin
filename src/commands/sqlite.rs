@@ -4,7 +4,7 @@ use cloud::client::Client as CloudClient;
 use cloud_openapi::models::Database;
 use dialoguer::Input;
 
-use crate::commands::create_cloud_client;
+use crate::commands::{create_cloud_client, get_app_id_cloud};
 use crate::opts::*;
 
 /// Manage Fermyon Cloud SQLite databases
@@ -39,6 +39,10 @@ pub struct ExecuteCommand {
 
     ///Statement to execute
     statement: String,
+
+    /// Name of Spin app
+    #[clap(name = "app", long = "app")]
+    pub app: String,
 
     #[clap(flatten)]
     common: CommonArgs,
@@ -89,8 +93,9 @@ impl SqliteCommand {
                 if !list.iter().any(|d| d.name == cmd.name) {
                     anyhow::bail!("No database found with name \"{}\"", cmd.name);
                 }
+                let app_id = get_app_id_cloud(&client, &cmd.app).await?;
                 println!("Executing SQL: {}", cmd.statement);
-                CloudClient::execute_sql(&client, cmd.name, cmd.statement)
+                CloudClient::execute_sql(&client, app_id, cmd.name, cmd.statement)
                     .await
                     .context("Problem executing SQL")?;
             }

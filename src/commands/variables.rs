@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::opts::*;
 
-use crate::commands::{create_cloud_client, deploy::get_app_id_cloud};
+use crate::commands::{create_cloud_client, get_app_id_cloud};
 
 #[derive(Deserialize)]
 pub(crate) struct Variable {
