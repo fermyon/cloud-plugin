@@ -398,6 +398,21 @@ impl Client {
         .map_err(format_response_error)
     }
 
+    pub async fn execute_sql(&self, database: String, statement: String) -> anyhow::Result<()> {
+        let _ = (database, statement);
+        // api_sql_databases_post(
+        //     &self.configuration,
+        //     ExecuteSqlQuery {
+        //         app_id: Some(app_id),
+        //         statement: statement
+        //     },
+        //     None,
+        // )
+        // .await
+        // .map_err(format_response_error)?;
+        Ok(())
+    }
+
     pub async fn delete_database(&self, name: String) -> anyhow::Result<()> {
         api_sql_databases_delete(&self.configuration, DeleteSqlDatabaseCommand { name }, None)
             .await
