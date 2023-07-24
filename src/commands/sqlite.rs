@@ -75,6 +75,10 @@ impl SqliteCommand {
 }
 
 fn print_databases(databases: Vec<Database>) {
+    if databases.is_empty() {
+        println!("No databases");
+        return;
+    }
     terminal::step!("Databases", "({})", databases.len());
     for d in databases {
         let default_str = if d.default { " (default)" } else { "" };
