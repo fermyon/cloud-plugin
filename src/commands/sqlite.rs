@@ -52,10 +52,15 @@ impl SqliteCommand {
     pub async fn run(self) -> Result<()> {
         match self {
             Self::Delete(cmd) => {
+                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
+                let list = CloudClient::get_databases(&client, None)
+                    .await
+                    .context("Problem fetching databases")?;
+                if !list.iter().any(|d| d.name == cmd.name) {
+                    anyhow::bail!("No database found with name \"{}\"", cmd.name);
+                }
                 // TODO: Fail if apps exist that are currently using a database
                 if cmd.yes || prompt_delete_database(&cmd.name)? {
-                    let client =
-                        create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
                     CloudClient::delete_database(&client, cmd.name.clone())
                         .await
                         .with_context(|| format!("Problem deleting database {}", cmd.name))?;
