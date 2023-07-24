@@ -89,7 +89,7 @@ fn print_databases(databases: Vec<Database>) {
 fn prompt_delete_database(database_name: &str) -> std::io::Result<bool> {
     let mut input = Input::<String>::new();
     let prompt =
-        format!("The action is irreversible. Please type \"{database_name}\" for confirmation.",);
+        format!("The action is irreversible. Please type \"{database_name}\" for confirmation",);
     input.with_prompt(prompt);
     let answer = input.interact_text()?;
     if answer != database_name {
