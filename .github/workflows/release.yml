@@ -221,4 +221,5 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: cloud.json
+          overwrite: true
           tag: ${{ env.RELEASE_VERSION }}
