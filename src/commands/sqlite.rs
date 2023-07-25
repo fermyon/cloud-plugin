@@ -35,13 +35,22 @@ pub struct DeleteCommand {
 #[derive(Parser, Debug)]
 pub struct ExecuteCommand {
     /// Name of database to execute against
+    #[clap(value_parser = clap::builder::ValueParser::new(disallow_empty))]
     name: String,
 
     ///Statement to execute
+    #[clap(value_parser = clap::builder::ValueParser::new(disallow_empty))]
     statement: String,
 
     #[clap(flatten)]
     common: CommonArgs,
+}
+
+fn disallow_empty(statement: &str) -> anyhow::Result<String> {
+    if statement.trim().is_empty() {
+        anyhow::bail!("cannot be empty");
+    }
+    return Ok(statement.trim().to_owned());
 }
 
 #[derive(Parser, Debug)]
