@@ -399,20 +399,13 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn execute_sql(
-        &self,
-        app_id: Uuid,
-        database: String,
-        statement: String,
-    ) -> anyhow::Result<()> {
-        let default = true;
+    pub async fn execute_sql(&self, database: String, statement: String) -> anyhow::Result<()> {
         api_sql_databases_execute_post(
             &self.configuration,
             ExecuteSqlStatementCommand {
                 database,
-                app_id,
                 statement,
-                default,
+                default: false,
             },
             None,
         )
