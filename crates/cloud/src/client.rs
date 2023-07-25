@@ -13,7 +13,8 @@ use cloud_openapi::{
         key_value_pairs_api::api_key_value_pairs_post,
         revisions_api::{api_revisions_get, api_revisions_post},
         sql_databases_api::{
-            api_sql_databases_delete, api_sql_databases_get, api_sql_databases_post,
+            api_sql_databases_create_post, api_sql_databases_delete,
+            api_sql_databases_execute_post, api_sql_databases_get,
         },
         variable_pairs_api::{
             api_variable_pairs_delete, api_variable_pairs_get, api_variable_pairs_post,
@@ -24,9 +25,9 @@ use cloud_openapi::{
         AppItemPage, ChannelItem, ChannelItemPage, ChannelRevisionSelectionStrategy,
         CreateAppCommand, CreateChannelCommand, CreateDeviceCodeCommand, CreateKeyValuePairCommand,
         CreateSqlDatabaseCommand, CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand,
-        DeleteVariablePairCommand, DeviceCodeItem, EnvironmentVariableItem, GetChannelLogsVm,
-        GetSqlDatabasesQuery, GetVariablesQuery, RefreshTokenCommand, RegisterRevisionCommand,
-        RevisionItemPage, TokenInfo,
+        DeleteVariablePairCommand, DeviceCodeItem, EnvironmentVariableItem,
+        ExecuteSqlStatementCommand, GetChannelLogsVm, GetSqlDatabasesQuery, GetVariablesQuery,
+        RefreshTokenCommand, RegisterRevisionCommand, RevisionItemPage, TokenInfo,
     },
 };
 use reqwest::header;
@@ -386,7 +387,7 @@ impl Client {
     }
 
     pub async fn create_database(&self, app_id: Option<Uuid>, name: String) -> anyhow::Result<()> {
-        api_sql_databases_post(
+        api_sql_databases_create_post(
             &self.configuration,
             CreateSqlDatabaseCommand {
                 name,
@@ -396,6 +397,21 @@ impl Client {
         )
         .await
         .map_err(format_response_error)
+    }
+
+    pub async fn execute_sql(&self, database: String, statement: String) -> anyhow::Result<()> {
+        api_sql_databases_execute_post(
+            &self.configuration,
+            ExecuteSqlStatementCommand {
+                database,
+                statement,
+                default: false,
+            },
+            None,
+        )
+        .await
+        .map_err(format_response_error)?;
+        Ok(())
     }
 
     pub async fn delete_database(&self, name: String) -> anyhow::Result<()> {

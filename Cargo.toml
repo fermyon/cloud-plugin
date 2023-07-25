@@ -14,12 +14,12 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 bindle = { git = "https://github.com/fermyon/bindle", tag = "v0.8.2", default-features = false, features = [
-	"client",
+  "client",
 ] }
 chrono = "0.4"
 clap = { version = "3.2.24", features = ["derive", "env"] }
 cloud = { path = "crates/cloud" }
-cloud-openapi = { git = "https://github.com/fermyon/cloud-openapi", rev = "dbf4657ef4e70433aea17210a539202443e2ce96" }
+cloud-openapi = { workspace = true }
 dirs = "5.0"
 dialoguer = "0.10"
 tokio = { version = "1.23", features = ["full"] }
@@ -48,6 +48,7 @@ openssl = { version = "0.10" }
 
 [workspace.dependencies]
 tracing = { version = "0.1", features = ["log"] }
+cloud-openapi = { git = "https://github.com/fermyon/cloud-openapi", rev = "c37c0f28c06a206ebe05a811c2b886290a5bab40" }
 
 [build-dependencies]
 vergen = { version = "^8.2.1", default-features = false, features = [

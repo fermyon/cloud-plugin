@@ -13,6 +13,8 @@ use crate::opts::*;
 pub enum SqliteCommand {
     /// Delete a SQLite database
     Delete(DeleteCommand),
+    /// Execute SQL against a SQLite database
+    Execute(ExecuteCommand),
     /// List all SQLite databases of a user
     List(ListCommand),
 }
@@ -28,6 +30,27 @@ pub struct DeleteCommand {
 
     #[clap(flatten)]
     common: CommonArgs,
+}
+
+#[derive(Parser, Debug)]
+pub struct ExecuteCommand {
+    /// Name of database to execute against
+    #[clap(value_parser = clap::builder::ValueParser::new(disallow_empty))]
+    name: String,
+
+    ///Statement to execute
+    #[clap(value_parser = clap::builder::ValueParser::new(disallow_empty))]
+    statement: String,
+
+    #[clap(flatten)]
+    common: CommonArgs,
+}
+
+fn disallow_empty(statement: &str) -> anyhow::Result<String> {
+    if statement.trim().is_empty() {
+        anyhow::bail!("cannot be empty");
+    }
+    return Ok(statement.trim().to_owned());
 }
 
 #[derive(Parser, Debug)]
@@ -66,6 +89,18 @@ impl SqliteCommand {
                         .with_context(|| format!("Problem deleting database {}", cmd.name))?;
                     println!("Database \"{}\" deleted", cmd.name);
                 }
+            }
+            Self::Execute(cmd) => {
+                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
+                let list = CloudClient::get_databases(&client, None)
+                    .await
+                    .context("Problem fetching databases")?;
+                if !list.iter().any(|d| d.name == cmd.name) {
+                    anyhow::bail!("No database found with name \"{}\"", cmd.name);
+                }
+                CloudClient::execute_sql(&client, cmd.name, cmd.statement)
+                    .await
+                    .context("Problem executing SQL")?;
             }
             Self::List(cmd) => {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;

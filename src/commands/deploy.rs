@@ -33,7 +33,10 @@ use std::{
 use url::Url;
 use uuid::Uuid;
 
-use crate::commands::variables::{get_variables, set_variables, Variable};
+use crate::commands::{
+    get_app_id_cloud,
+    variables::{get_variables, set_variables, Variable},
+};
 
 use crate::{
     commands::login::{LoginCommand, LoginConnection},
@@ -183,7 +186,7 @@ impl DeployCommand {
         // Create or update app
         // TODO: this process involves many calls to Cloud. Should be able to update the channel
         // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
-        let channel_id = match self.get_app_id_cloud(&client, name.clone()).await {
+        let channel_id = match get_app_id_cloud(&client, &name).await {
             Ok(app_id) => {
                 if uses_default_db(&cfg) {
                     create_default_database_if_does_not_exist(&name, app_id, &client).await?;
@@ -394,15 +397,6 @@ impl DeployCommand {
 
         let list_text = unprovided_variables.join(", ");
         Err(anyhow!("The application requires values for the following variable(s) which have not been set: {list_text}. Use the --variable flag to provide values."))
-    }
-
-    async fn get_app_id_cloud(&self, cloud_client: &CloudClient, name: String) -> Result<Uuid> {
-        let apps_vm = CloudClient::list_apps(cloud_client).await?;
-        let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
-        match app {
-            Some(a) => Ok(a.id),
-            None => bail!("No app with name: {}", name),
-        }
     }
 
     async fn try_get_app_id_cloud(
@@ -843,15 +837,6 @@ pub async fn login_connection(deployment_env_id: Option<&str>) -> Result<LoginCo
     drop(sloth_guard);
 
     Ok(login_connection)
-}
-
-pub async fn get_app_id_cloud(cloud_client: &CloudClient, name: &str) -> Result<Uuid> {
-    let apps_vm = CloudClient::list_apps(cloud_client).await?;
-    let app = apps_vm.items.iter().find(|&x| x.name == name);
-    match app {
-        Some(a) => Ok(a.id),
-        None => bail!("No app with name: {}", name),
-    }
 }
 
 // TODO: unify with login
