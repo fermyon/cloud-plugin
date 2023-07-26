@@ -424,7 +424,7 @@ dependencies = [
 
 [[package]]
 name = "cloud"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "cloud-openapi",
@@ -455,7 +455,7 @@ dependencies = [
 
 [[package]]
 name = "cloud-plugin"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "bindle",
