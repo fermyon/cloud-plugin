@@ -98,7 +98,13 @@ impl SqliteCommand {
                 if !list.iter().any(|d| d.name == cmd.name) {
                     anyhow::bail!("No database found with name \"{}\"", cmd.name);
                 }
-                CloudClient::execute_sql(&client, cmd.name, cmd.statement)
+                let statement = if let Some(path) = cmd.statement.strip_prefix('@') {
+                    std::fs::read_to_string(path)
+                        .with_context(|| format!("could not read sql file at '{path}'"))?
+                } else {
+                    cmd.statement
+                };
+                CloudClient::execute_sql(&client, cmd.name, statement)
                     .await
                     .context("Problem executing SQL")?;
             }
