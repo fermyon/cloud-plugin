@@ -6,11 +6,20 @@ on:
     branches: ["main", "v*"]
     # Also run on tag pushes, as the release.yml doesn't currently run tests
     tags: ["v*"]
+    paths-ignore:
+      - ".plugin-manifests/**"
+      - "*.md"
+      - "LICENSE"
+      - ".github/workflow/audits.yml"
+      - "supply-chain/**"
   pull_request:
     branches: ["main", "v*"]
     paths-ignore:
       - ".plugin-manifests/**"
-      - "README.md"
+      - "*.md"
+      - "LICENSE"
+      - ".github/workflow/audits.yml"
+      - "supply-chain/**"
 
 env:
   CARGO_TERM_COLOR: always

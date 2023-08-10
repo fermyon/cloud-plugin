@@ -1,28 +1,27 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use clap::{Args, Parser};
-use cloud::client::{Client as CloudClient, ConnectionConfig};
+use cloud::client::Client as CloudClient;
 use serde::Deserialize;
 use serde_json::from_str;
 use spin_common::arg_parser::parse_kv;
 use uuid::Uuid;
 
-use crate::{
-    commands::deploy::{get_app_id_cloud, login_connection},
-    opts::*,
-};
+use crate::opts::*;
+
+use crate::commands::{create_cloud_client, get_app_id_cloud};
 
 #[derive(Deserialize)]
-struct Variable {
-    key: String,
+pub(crate) struct Variable {
+    pub key: String,
 }
 
 /// Manage Spin application variables
 #[derive(Parser, Debug)]
 #[clap(about = "Manage Spin application variables")]
 pub enum VariablesCommand {
-    /// Set variable pairs
+    /// Set variables
     Set(SetCommand),
-    /// Delete variable pairs
+    /// Delete variables
     Delete(DeleteCommand),
     /// List all variables of an application
     List(ListCommand),
@@ -67,53 +66,26 @@ struct CommonArgs {
     pub app: String,
 }
 
-/// Information needed to connect to Fermyon Cloud to manage a specific Spin application
-struct AppManagmentInfo {
-    app_id: Uuid,
-    client: CloudClient,
-}
-
-impl AppManagmentInfo {
-    pub async fn new(deployment_env_id: Option<&str>, app: &str) -> Result<Self> {
-        let login_connection = login_connection(deployment_env_id).await?;
-        let connection_config = ConnectionConfig {
-            url: login_connection.url.to_string(),
-            insecure: login_connection.danger_accept_invalid_certs,
-            token: login_connection.token.clone(),
-        };
-        let client = CloudClient::new(connection_config.clone());
-        let app_id = get_app_id_cloud(&client, app.to_string())
-            .await
-            .with_context(|| anyhow!(format!("Could not find app_id for app {}", app)))?;
-        Ok(AppManagmentInfo { app_id, client })
-    }
-}
-
 impl VariablesCommand {
     pub async fn run(self) -> Result<()> {
         match self {
             Self::Set(cmd) => {
-                let info =
-                    AppManagmentInfo::new(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
+                let (client, app_id) =
+                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
                         .await?;
-                set_variables(&info.client, info.app_id, &cmd.variables_to_set).await?;
+                set_variables(&client, app_id, &cmd.variables_to_set).await?;
             }
             Self::Delete(cmd) => {
-                let info =
-                    AppManagmentInfo::new(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
+                let (client, app_id) =
+                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
                         .await?;
-                delete_variables(&info.client, info.app_id, &cmd.variables_to_delete).await?;
+                delete_variables(&client, app_id, &cmd.variables_to_delete).await?;
             }
             Self::List(cmd) => {
-                let info =
-                    AppManagmentInfo::new(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
+                let (client, app_id) =
+                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
                         .await?;
-                let vars = get_variables(&info.client, info.app_id).await?;
-                let var_names = vars
-                    .iter()
-                    .map(|var| from_str(var))
-                    .collect::<Result<Vec<Variable>, _>>()
-                    .context("could not parse variable")?;
+                let var_names = get_variables(&client, app_id).await?;
                 for v in var_names {
                     println!("{}", v.key);
                 }
@@ -121,6 +93,17 @@ impl VariablesCommand {
         }
         Ok(())
     }
+}
+
+async fn client_and_app_id(
+    deployment_env_id: Option<&str>,
+    app: &str,
+) -> Result<(CloudClient, Uuid)> {
+    let client = create_cloud_client(deployment_env_id).await?;
+    let app_id = get_app_id_cloud(&client, app)
+        .await
+        .with_context(|| format!("Could not find app_id for app {}", app))?;
+    Ok((client, app_id))
 }
 
 pub(crate) async fn set_variables(
@@ -149,9 +132,19 @@ pub(crate) async fn delete_variables(
     Ok(())
 }
 
-pub(crate) async fn get_variables(client: &CloudClient, app_id: Uuid) -> Result<Vec<String>> {
+async fn get_variables_json(client: &CloudClient, app_id: Uuid) -> Result<Vec<String>> {
     let vars = CloudClient::get_variable_pairs(client, app_id)
         .await
         .context("Problem listing variables")?;
     Ok(vars)
+}
+
+pub(crate) async fn get_variables(client: &CloudClient, app_id: Uuid) -> Result<Vec<Variable>> {
+    let vars = get_variables_json(client, app_id).await?;
+    let var_names = vars
+        .iter()
+        .map(|var| from_str(var))
+        .collect::<Result<Vec<Variable>, _>>()
+        .context("could not parse variable")?;
+    Ok(var_names)
 }

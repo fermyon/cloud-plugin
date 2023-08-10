@@ -5,6 +5,12 @@ on:
       - main
     tags:
       - "v*"
+    paths-ignore:
+      - ".plugin-manifests/**"
+      - "*.md"
+      - "LICENSE"
+      - ".github/workflow/audits.yml"
+      - "supply-chain/**"
   workflow_dispatch:
 
 env:
@@ -16,9 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
-      - name: Fetch tags
-        run: git fetch origin --tags
 
       - name: 'Check if canary tag exists'
         id: canaryExists
@@ -165,6 +168,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: _dist/cloud-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
+          overwrite: true
           tag: "canary"
 
   checksums_and_manifests:
@@ -205,6 +209,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: checksums-${{ env.RELEASE_VERSION }}.txt
+          overwrite: true
           tag: "canary"
 
       - name: create plugin manifest
@@ -216,4 +221,5 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: cloud.json
+          overwrite: true
           tag: ${{ env.RELEASE_VERSION }}

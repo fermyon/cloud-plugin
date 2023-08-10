@@ -10,7 +10,7 @@ use rand::Rng;
 use semver::BuildMetadata;
 use sha2::{Digest, Sha256};
 use spin_common::{arg_parser::parse_kv, sloth};
-use spin_http::routes::RoutePattern;
+use spin_http::{app_info::AppInfo, routes::RoutePattern};
 use spin_loader::{
     bindle::BindleConnectionInfo,
     local::{
@@ -20,11 +20,11 @@ use spin_loader::{
     },
 };
 use spin_manifest::{ApplicationTrigger, HttpTriggerConfiguration, TriggerConfig};
-use spin_trigger_http::AppInfo;
 use tokio::fs;
 use tracing::instrument;
 
 use std::{
+    collections::HashSet,
     fs::File,
     io::{self, copy, Write},
     path::PathBuf,
@@ -32,7 +32,10 @@ use std::{
 use url::Url;
 use uuid::Uuid;
 
-use crate::commands::variables::set_variables;
+use crate::commands::{
+    get_app_id_cloud,
+    variables::{get_variables, set_variables, Variable},
+};
 
 use crate::{
     commands::login::{LoginCommand, LoginConnection},
@@ -42,6 +45,7 @@ use crate::{
 
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
+const SPIN_DEFAULT_DATABASE: &str = "default";
 const BINDLE_REGISTRY_URL_PATH: &str = "api/registry";
 
 /// Package and upload an application to the Fermyon Cloud.
@@ -110,10 +114,10 @@ pub struct DeployCommand {
     #[clap(long = "key-value", parse(try_from_str = parse_kv))]
     pub key_values: Vec<(String, String)>,
 
-    /// Set a variable pair (variable=value) in the deployed application.
+    /// Set a variable (variable=value) in the deployed application.
     /// Any existing value will be overwritten.
     /// Can be used multiple times.
-    #[clap(long = "variable", parse(try_from_str = parse_kv), hide = true)]
+    #[clap(long = "variable", parse(try_from_str = parse_kv))]
     pub variables: Vec<(String, String)>,
 }
 
@@ -129,7 +133,7 @@ impl DeployCommand {
     }
 
     fn app(&self) -> anyhow::Result<PathBuf> {
-        crate::manifest::resolve_file_path(&self.app_source)
+        spin_common::paths::resolve_manifest_file_path(&self.app_source)
     }
 
     async fn deploy_cloud(self, login_connection: LoginConnection) -> Result<()> {
@@ -145,6 +149,7 @@ impl DeployCommand {
         let cfg = cfg_any.into_v1();
 
         validate_cloud_app(&cfg)?;
+        self.validate_deployment_environment(&cfg, &client).await?;
 
         match cfg.info.trigger {
             ApplicationTrigger::Http(_) => {}
@@ -161,7 +166,7 @@ impl DeployCommand {
             None
         };
 
-        let app_file = crate::manifest::resolve_file_path(&self.app_source)?;
+        let app_file = spin_common::paths::resolve_manifest_file_path(&self.app_source)?;
         let dir = tempfile::tempdir()?;
         let application = spin_loader::local::from_file(&app_file, Some(dir.path())).await?;
 
@@ -190,8 +195,13 @@ impl DeployCommand {
         println!("Deploying...");
 
         // Create or update app
-        let channel_id = match self.get_app_id_cloud(&client, name.clone()).await {
+        // TODO: this process involves many calls to Cloud. Should be able to update the channel
+        // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
+        let channel_id = match get_app_id_cloud(&client, &name).await {
             Ok(app_id) => {
+                if uses_default_db(&cfg) {
+                    create_default_database_if_does_not_exist(&name, app_id, &client).await?;
+                }
                 CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
                 let existing_channel_id = self
                     .get_channel_id_cloud(&client, SPIN_DEPLOY_CHANNEL_NAME.to_string(), app_id)
@@ -228,7 +238,8 @@ impl DeployCommand {
                 existing_channel_id
             }
             Err(_) => {
-                let app_id = CloudClient::add_app(&client, &name, &storage_id)
+                let create_default_db = uses_default_db(&cfg);
+                let app_id = CloudClient::add_app(&client, &name, &storage_id, create_default_db)
                     .await
                     .context("Unable to create app")?;
 
@@ -326,12 +337,83 @@ impl DeployCommand {
         Ok(buildinfo)
     }
 
-    async fn get_app_id_cloud(&self, cloud_client: &CloudClient, name: String) -> Result<Uuid> {
+    async fn validate_deployment_environment(
+        &self,
+        app: &RawAppManifest,
+        client: &CloudClient,
+    ) -> Result<()> {
+        let required_variables = app
+            .variables
+            .iter()
+            .filter(|(_, v)| v.required)
+            .map(|(k, _)| k)
+            .collect::<HashSet<_>>();
+        if !required_variables.is_empty() {
+            self.ensure_variables_present(&required_variables, client, &app.info.name)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn ensure_variables_present(
+        &self,
+        required_variables: &HashSet<&String>,
+        client: &CloudClient,
+        app_name: &str,
+    ) -> Result<()> {
+        // Are all required variables satisifed by variables passed in this command?
+        let provided_variables = self.variables.iter().map(|(k, _)| k).collect();
+        let unprovided_variables = required_variables
+            .difference(&provided_variables)
+            .copied()
+            .collect::<HashSet<_>>();
+        if unprovided_variables.is_empty() {
+            return Ok(());
+        }
+
+        // Are all remaining required variables satisfied by variables already in the cloud?
+        let extant_variables = match self
+            .try_get_app_id_cloud(client, app_name.to_string())
+            .await
+        {
+            Ok(Some(app_id)) => match get_variables(client, app_id).await {
+                Ok(variables) => variables,
+                Err(_) => {
+                    // Don't block deployment for being unable to check the variables.
+                    eprintln!("Unable to confirm variables {unprovided_variables:?} are defined. Check your app after deployment.");
+                    return Ok(());
+                }
+            },
+            Ok(None) => vec![],
+            Err(_) => {
+                // Don't block deployment for being unable to check the variables.
+                eprintln!("Unable to confirm variables {unprovided_variables:?} are defined. Check your app after deployment.");
+                return Ok(());
+            }
+        };
+        let extant_variables = extant_variables.iter().map(|v| &v.key).collect();
+        let unprovided_variables = unprovided_variables
+            .difference(&extant_variables)
+            .map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        if unprovided_variables.is_empty() {
+            return Ok(());
+        }
+
+        let list_text = unprovided_variables.join(", ");
+        Err(anyhow!("The application requires values for the following variable(s) which have not been set: {list_text}. Use the --variable flag to provide values."))
+    }
+
+    async fn try_get_app_id_cloud(
+        &self,
+        cloud_client: &CloudClient,
+        name: String,
+    ) -> Result<Option<Uuid>> {
         let apps_vm = CloudClient::list_apps(cloud_client).await?;
         let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
         match app {
-            Some(a) => Ok(a.id),
-            None => bail!("No app with name: {}", name),
+            Some(a) => Ok(Some(a.id)),
+            None => Ok(None),
         }
     }
 
@@ -452,12 +534,50 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
             .key_value_stores
             .iter()
             .flatten()
-            .find(|store| *store != "default")
+            .find(|store| *store != SPIN_DEFAULT_KV_STORE)
         {
             bail!("Invalid store {invalid_store:?} for component {:?}. Cloud currently supports only the 'default' store.", component.id);
         }
+
+        if let Some(invalid_db) = component
+            .wasm
+            .sqlite_databases
+            .iter()
+            .flatten()
+            .find(|db| *db != SPIN_DEFAULT_DATABASE)
+        {
+            bail!("Invalid database {invalid_db:?} for component {:?}. Cloud currently supports only the 'default' SQLite databases.", component.id);
+        }
     }
     Ok(())
+}
+
+async fn create_default_database_if_does_not_exist(
+    app_name: &str,
+    app_id: Uuid,
+    client: &CloudClient,
+) -> Result<()> {
+    let default_db = client
+        .get_databases(Some(app_id))
+        .await?
+        .into_iter()
+        .find(|d| d.default);
+
+    if default_db.is_none() {
+        client
+            .create_database(Some(app_id), SPIN_DEFAULT_DATABASE.to_string())
+            .await?;
+    }
+    Ok(())
+}
+
+fn uses_default_db(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> bool {
+    cfg.components
+        .iter()
+        .cloned()
+        .filter_map(|c| c.wasm.sqlite_databases)
+        .flatten()
+        .any(|db| db == SPIN_DEFAULT_DATABASE)
 }
 
 fn random_buildinfo() -> BuildMetadata {
@@ -724,15 +844,6 @@ pub async fn login_connection(deployment_env_id: Option<&str>) -> Result<LoginCo
     drop(sloth_guard);
 
     Ok(login_connection)
-}
-
-pub async fn get_app_id_cloud(cloud_client: &CloudClient, name: String) -> Result<Uuid> {
-    let apps_vm = CloudClient::list_apps(cloud_client).await?;
-    let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
-    match app {
-        Some(a) => Ok(a.id),
-        None => bail!("No app with name: {}", name),
-    }
 }
 
 // TODO: unify with login
