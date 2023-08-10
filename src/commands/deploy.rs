@@ -187,10 +187,7 @@ impl DeployCommand {
         // A tag name may not start with a period or a hyphen and may contain a maximum of 128 characters.
         let version = application.info.version
             + "-"
-            + &buildinfo
-                .clone()
-                .context("Cannot parse build info")?
-                .to_string();
+            + &buildinfo.clone().context("Cannot parse build info")?;
 
         println!("Deploying...");
 
@@ -490,7 +487,7 @@ impl DeployCommand {
         let cloud_url = Url::parse(connection_config.url.as_str())?;
         let mut cloud_registry_url = cloud_url;
         let _result = match cloud_registry_url.set_host(Some(
-            &("registry.".to_owned() + &cloud_registry_url.host_str().unwrap().to_owned()),
+            &("registry.".to_owned() + cloud_registry_url.host_str().unwrap()),
         )) {
             Err(err) => Err(anyhow!("Unable to construct cloud registry URL: {err:?}")),
             Ok(()) => Ok(()),
@@ -509,7 +506,7 @@ impl DeployCommand {
         };
 
         let oci_ref = Reference::try_from(reference.as_ref())
-            .expect(&format!("Could not parse reference '{reference}'"));
+            .unwrap_or_else(|_| panic!("Could not parse reference '{reference}'"));
 
         client.insert_token(
             &oci_ref,
