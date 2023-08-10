@@ -508,7 +508,6 @@ impl DeployCommand {
             None => cloud_registry_url.domain().unwrap().to_owned() + "/" + &application.info.name,
         };
 
-        println!("Uploading {} to Fermyon Cloud...", reference);
         let oci_ref = Reference::try_from(reference.as_ref())
             .expect(&format!("Could not parse reference '{reference}'"));
 
@@ -520,6 +519,11 @@ impl DeployCommand {
             }),
         );
 
+        println!(
+            "Uploading {} version {} to Fermyon Cloud...",
+            &oci_ref.repository(),
+            &oci_ref.tag().unwrap_or(&application.info.version)
+        );
         let digest = client.push(&application, reference).await?;
 
         Ok(digest)
