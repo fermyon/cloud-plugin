@@ -18,8 +18,8 @@ clap = { version = "3.2.24", features = ["derive", "env"] }
 cloud = { path = "crates/cloud" }
 cloud-openapi = { workspace = true }
 dirs = "5.0"
-oci-distribution = { git = "https://github.com/fermyon/oci-distribution", branch = "access-token-cache" }
 dialoguer = "0.10"
+oci-distribution = { git = "https://github.com/fermyon/oci-distribution", branch = "access-token-cache" }
 tokio = { version = "1.23", features = ["full"] }
 tracing = { workspace = true }
 rand = "0.8"
@@ -56,3 +56,8 @@ vergen = { version = "^8.2.1", default-features = false, features = [
   "gitcl",
   "cargo",
 ] }
+
+[patch.crates-io]
+# Using fork to bump nested dep sqlite3-parser to 0.9.0 for Windows build fix
+# Pending related upstream PR https://github.com/libsql/libsql-client-rs/pull/32
+libsql-client = { git = "https://github.com/vdice/libsql-client-rs", branch = "chore/bump-deps"}
