@@ -180,14 +180,13 @@ impl DeployCommand {
             )
             .await?;
 
-        let name = application.info.name;
+        let name = sanitize_app_name(&application.info.name);
         let storage_id = format!("oci://{}", name);
-        // FYI: From https://docs.docker.com/engine/reference/commandline/tag
-        // A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and hyphens.
-        // A tag name may not start with a period or a hyphen and may contain a maximum of 128 characters.
-        let version = application.info.version
-            + "-"
-            + &buildinfo.clone().context("Cannot parse build info")?;
+        let version = sanitize_app_version(
+            &(application.info.version
+                + "-"
+                + &buildinfo.clone().context("Cannot parse build info")?),
+        );
 
         println!("Deploying...");
 
@@ -496,13 +495,17 @@ impl DeployCommand {
             Some(buildinfo) => {
                 cloud_registry_url.domain().unwrap().to_owned()
                     + "/"
-                    + &application.info.name
+                    + &sanitize_app_name(&application.info.name)
                     + ":"
-                    + &application.info.version
-                    + "-"
-                    + &buildinfo
+                    + &sanitize_app_version(
+                        &(application.info.version.to_owned() + "-" + &buildinfo),
+                    )
             }
-            None => cloud_registry_url.domain().unwrap().to_owned() + "/" + &application.info.name,
+            None => {
+                cloud_registry_url.domain().unwrap().to_owned()
+                    + "/"
+                    + &sanitize_app_name(&application.info.name)
+            }
         };
 
         let oci_ref = Reference::try_from(reference.as_ref())
@@ -527,7 +530,51 @@ impl DeployCommand {
     }
 }
 
+// SAFE_APP_NAME regex to only allow letters/numbers/underscores/dashes
+lazy_static::lazy_static! {
+    static ref SAFE_APP_NAME: regex::Regex = regex::Regex::new("^[-_\\p{L}\\p{N}]+$").expect("Invalid name regex");
+}
+
+// TODO: logic here inherited from bindle restrictions; it would be friendlier to users
+// to be less stringent and do the necessary sanitization on the backend, rather than
+// presenting this error at deploy time.
+fn check_safe_app_name(name: &str) -> Result<()> {
+    if SAFE_APP_NAME.is_match(name) {
+        Ok(())
+    } else {
+        Err(anyhow!("App name '{}' contains characters that are not allowed. It may contain only letters, numbers, dashes and underscores", name))
+    }
+}
+
+// Sanitize app name to conform to Docker repo name conventions
+// From https://docs.docker.com/engine/reference/commandline/tag/#extended-description:
+// The path consists of slash-separated components. Each component may contain lowercase letters, digits and separators.
+// A separator is defined as a period, one or two underscores, or one or more hyphens. A component may not start or end with a separator.
+fn sanitize_app_name(name: &str) -> String {
+    name.to_ascii_lowercase()
+        .replace(" ", "")
+        .trim_start_matches(|c: char| c == '.' || c == '_' || c == '-')
+        .trim_end_matches(|c: char| c == '.' || c == '_' || c == '-')
+        .to_string()
+}
+
+// Sanitize app version to conform to Docker tag conventions
+// From https://docs.docker.com/engine/reference/commandline/tag
+// A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and hyphens.
+// A tag name may not start with a period or a hyphen and may contain a maximum of 128 characters.
+fn sanitize_app_version(tag: &str) -> String {
+    let mut sanitized = tag
+        .trim()
+        .trim_start_matches(|c: char| c == '.' || c == '-');
+
+    if sanitized.len() > 128 {
+        (sanitized, _) = sanitized.split_at(128);
+    }
+    sanitized.replace(" ", "")
+}
+
 fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
+    check_safe_app_name(&app.info.name)?;
     ensure!(!app.components.is_empty(), "No components in spin.toml!");
     for component in &app.components {
         if let Some(invalid_store) = component
@@ -862,4 +909,46 @@ pub fn config_file_path(deployment_env_id: Option<&str>) -> Result<PathBuf> {
     let path = root.join(file);
 
     Ok(path)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn accepts_only_valid_app_names() {
+        check_safe_app_name("hello").expect("should have accepted 'hello'");
+        check_safe_app_name("hello-world").expect("should have accepted 'hello-world'");
+        check_safe_app_name("hell0_w0rld").expect("should have accepted 'hell0_w0rld'");
+
+        let err =
+            check_safe_app_name("hello/world").expect_err("should not have accepted 'hello/world'");
+
+        let err =
+            check_safe_app_name("hello world").expect_err("should not have accepted 'hello world'");
+    }
+
+    #[test]
+    fn should_sanitize_app_name() {
+        assert_eq!("hello-world", sanitize_app_name("hello-world"));
+        assert_eq!("hello-world2000", sanitize_app_name("Hello-World2000"));
+        assert_eq!("hello-world", sanitize_app_name(".-_hello-world_-"));
+        assert_eq!("hello-world", sanitize_app_name(" hello -world "));
+    }
+
+    #[test]
+    fn should_sanitize_app_version() {
+        assert_eq!("v0.1.0", sanitize_app_version("v0.1.0"));
+        assert_eq!("_v0.1.0", sanitize_app_version("_v0.1.0"));
+        assert_eq!("v0.1.0_-", sanitize_app_version(".-v0.1.0_-"));
+        assert_eq!("v0.1.0", sanitize_app_version(" v 0.1.0 "));
+        assert_eq!(
+            "v0.1.0+Hello-World",
+            sanitize_app_version(" v 0.1.0+Hello-World ")
+        );
+        assert_eq!(
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            sanitize_app_version("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b")
+        );
+    }
 }
