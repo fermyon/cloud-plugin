@@ -13,6 +13,11 @@ on:
       - "supply-chain/**"
   workflow_dispatch:
 
+# Construct a concurrency group to be shared across workflow runs.
+# The default behavior ensures that only one is running at a time, with
+# all others queuing and thus not interrupting runs that are in-flight.
+concurrency: ${{ github.workflow }}
+
 env:
   CARGO_TERM_COLOR: always
 
