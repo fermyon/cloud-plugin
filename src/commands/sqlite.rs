@@ -7,15 +7,15 @@ use dialoguer::Input;
 use crate::commands::create_cloud_client;
 use crate::opts::*;
 
-/// Manage Fermyon Cloud SQLite databases
+/// Manage Fermyon Cloud NoOps SQL databases
 #[derive(Parser, Debug)]
 #[clap(about = "Manage Fermyon Cloud SQLite databases")]
 pub enum SqliteCommand {
-    /// Delete a SQLite database
+    /// Delete a NoOps SQL database
     Delete(DeleteCommand),
-    /// Execute SQL against a SQLite database
+    /// Execute SQLite statements against a NoOps SQL database
     Execute(ExecuteCommand),
-    /// List all SQLite databases of a user
+    /// List all NoOps SQL databases of a user
     List(ListCommand),
 }
 
