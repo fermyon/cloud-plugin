@@ -42,6 +42,13 @@ package:
 
 .PHONY: install
 install: package
+ifeq (, $(shell which jq))
+	$(error "jq not found in PATH. Please add it or install the plugin manually")
+endif
+ifeq (, $(shell which spin))
+	$(error "spin not found in PATH. It is required for installing this plugin")
+endif
+
 	@curl -sLR -o /tmp/cloud.json https://github.com/fermyon/cloud-plugin/releases/download/canary/cloud.json
 	@jq -j \
 		--arg os $(OS_TYPE) \
