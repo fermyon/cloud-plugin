@@ -33,6 +33,7 @@ jobs:
         id: canaryExists
         shell: bash
         run: |
+          git fetch --prune --unshallow --tags
           git show-ref --tags --verify --quiet -- "refs/tags/canary" && \
           echo "canaryExists=0" >> "$GITHUB_OUTPUT" || \
           echo "canaryExists=1" >> "$GITHUB_OUTPUT"
