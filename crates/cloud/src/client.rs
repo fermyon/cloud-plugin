@@ -155,10 +155,18 @@ impl Client {
             .map_err(format_response_error)
     }
 
-    pub async fn list_apps(&self) -> Result<AppItemPage> {
-        api_apps_get(&self.configuration, None, None, None, None, None, None)
-            .await
-            .map_err(format_response_error)
+    pub async fn list_apps(&self, page_size: i32, page_index: Option<i32>) -> Result<AppItemPage> {
+        api_apps_get(
+            &self.configuration,
+            None,
+            page_index,
+            Some(page_size),
+            None,
+            None,
+            None,
+        )
+        .await
+        .map_err(format_response_error)
     }
 
     pub async fn get_channel_by_id(&self, id: &str) -> Result<ChannelItem> {

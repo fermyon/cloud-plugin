@@ -230,7 +230,8 @@ impl LoginCommand {
             insecure: self.insecure,
             token: token.clone(),
         })
-        .list_apps()
+        // Just getting the first app as we just use it to test credentials
+        .list_apps(1, None)
         .await
         .context("Login using the provided personal access token failed. Run `spin login` or create a new token using the Fermyon Cloud user interface.")?;
 
