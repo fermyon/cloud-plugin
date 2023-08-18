@@ -19,10 +19,12 @@ cloud = { path = "crates/cloud" }
 cloud-openapi = { workspace = true }
 dirs = "5.0"
 dialoguer = "0.10"
+lazy_static = "1.4.0"
 oci-distribution = { git = "https://github.com/fermyon/oci-distribution", branch = "access-token-cache" }
 tokio = { version = "1.23", features = ["full"] }
 tracing = { workspace = true }
 rand = "0.8"
+regex = "1.5.4"
 reqwest = { version = "0.11", features = ["stream"] }
 rpassword = "7.0"
 semver = "1.0"
