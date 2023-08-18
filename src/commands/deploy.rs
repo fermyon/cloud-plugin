@@ -552,7 +552,7 @@ fn check_safe_app_name(name: &str) -> Result<()> {
 // A separator is defined as a period, one or two underscores, or one or more hyphens. A component may not start or end with a separator.
 fn sanitize_app_name(name: &str) -> String {
     name.to_ascii_lowercase()
-        .replace(" ", "")
+        .replace(' ', "")
         .trim_start_matches(|c: char| c == '.' || c == '_' || c == '-')
         .trim_end_matches(|c: char| c == '.' || c == '_' || c == '-')
         .to_string()
@@ -570,7 +570,7 @@ fn sanitize_app_version(tag: &str) -> String {
     if sanitized.len() > 128 {
         (sanitized, _) = sanitized.split_at(128);
     }
-    sanitized.replace(" ", "")
+    sanitized.replace(' ', "")
 }
 
 fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
