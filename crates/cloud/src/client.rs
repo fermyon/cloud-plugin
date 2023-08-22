@@ -62,9 +62,10 @@ impl Client {
         let configuration = Configuration {
             base_path,
             user_agent: Some(format!(
-                "{}/{}",
+                "{}/{} spin/{}",
                 env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION")
+                env!("CARGO_PKG_VERSION"),
+                std::env::var("SPIN_VERSION").unwrap_or_else(|_| "0".to_string())
             )),
             client: reqwest::Client::builder()
                 .danger_accept_invalid_certs(conn_info.insecure)

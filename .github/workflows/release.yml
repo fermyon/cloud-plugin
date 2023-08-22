@@ -13,8 +13,14 @@ on:
       - "supply-chain/**"
   workflow_dispatch:
 
+# Construct a concurrency group to be shared across workflow runs.
+# The default behavior ensures that only one is running at a time, with
+# all others queuing and thus not interrupting runs that are in-flight.
+concurrency: ${{ github.workflow }}
+
 env:
   CARGO_TERM_COLOR: always
+  RUST_VERSION: 1.68
 
 jobs:
   reset_canary_release: 
@@ -26,7 +32,11 @@ jobs:
       - name: 'Check if canary tag exists'
         id: canaryExists
         shell: bash
-        run: git show-ref --tags --verify --quiet -- "refs/tags/canary" && echo "::set-output name=canaryExists::0" || echo "::set-output name=canaryExists::1"
+        run: |
+          git fetch --prune --unshallow --tags
+          git show-ref --tags --verify --quiet -- "refs/tags/canary" && \
+          echo "canaryExists=0" >> "$GITHUB_OUTPUT" || \
+          echo "canaryExists=1" >> "$GITHUB_OUTPUT"
 
       - name: Delete canary tag
         if: steps.canaryExists.outputs.canaryExists == 0
@@ -37,7 +47,7 @@ jobs:
           tag_name: canary
 
       - name: Recreate canary tag and release
-        uses: ncipollo/release-action@v1.10.0
+        uses: ncipollo/release-action@v1.12.0
         with:
           tag: canary
           allowUpdates: true
@@ -101,12 +111,16 @@ jobs:
             }
     steps:
       - uses: actions/checkout@v3
-      - name: Install latest Rust stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: 1.68
-          default: true
-          target: ${{ matrix.config.target }}
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install ${{ env.RUST_VERSION }}
+          rustup default ${{ env.RUST_VERSION }}
+
+      - name: Install target
+        if: matrix.config.target != ''
+        shell: bash
+        run: rustup target add --toolchain ${{ env.RUST_VERSION }} ${{ matrix.config.target }}
 
       - name: "Install Wasm Rust target"
         run: rustup target add wasm32-wasi --toolchain 1.68 && rustup target add wasm32-unknown-unknown --toolchain 1.68
@@ -135,10 +149,8 @@ jobs:
           echo 'linker = "aarch64-linux-gnu-gcc"' >> ${HOME}/.cargo/config.toml
 
       - name: build release
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: "--release ${{ matrix.config.buildArgs }}"
+        shell: bash
+        run: cargo build --release ${{ matrix.config.buildArgs }}
 
       - name: Package as plugins tar
         shell: bash
