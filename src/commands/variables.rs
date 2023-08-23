@@ -6,9 +6,8 @@ use serde_json::from_str;
 use spin_common::arg_parser::parse_kv;
 use uuid::Uuid;
 
+use crate::commands::client_and_app_id;
 use crate::opts::*;
-
-use crate::commands::{create_cloud_client, get_app_id_cloud};
 
 #[derive(Deserialize)]
 pub(crate) struct Variable {
@@ -93,17 +92,6 @@ impl VariablesCommand {
         }
         Ok(())
     }
-}
-
-async fn client_and_app_id(
-    deployment_env_id: Option<&str>,
-    app: &str,
-) -> Result<(CloudClient, Uuid)> {
-    let client = create_cloud_client(deployment_env_id).await?;
-    let app_id = get_app_id_cloud(&client, app)
-        .await
-        .with_context(|| format!("Could not find app_id for app {}", app))?;
-    Ok((client, app_id))
 }
 
 pub(crate) async fn set_variables(

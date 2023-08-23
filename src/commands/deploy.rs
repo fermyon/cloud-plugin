@@ -404,7 +404,7 @@ impl DeployCommand {
         cloud_client: &CloudClient,
         name: String,
     ) -> Result<Option<Uuid>> {
-        let apps_vm = CloudClient::list_apps(cloud_client).await?;
+        let apps_vm = CloudClient::list_apps(cloud_client, DEFAULT_APPLIST_PAGE_SIZE, None).await?;
         let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
         match app {
             Some(a) => Ok(Some(a.id)),
