@@ -45,7 +45,7 @@ impl AppsCommand {
             AppsCommand::List(cmd) => {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
                 let mut app_list_page = client.list_apps(DEFAULT_APPLIST_PAGE_SIZE, None).await?;
-                if app_list_page.total_items > 0 {
+                if app_list_page.total_items <= 0 {
                     eprintln!("No applications found");
                 } else {
                     print_app_list(&app_list_page);
