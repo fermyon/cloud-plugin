@@ -541,6 +541,16 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
         {
             bail!("Invalid database {invalid_db:?} for component {:?}. Cloud currently supports only the 'default' SQLite databases.", component.id);
         }
+
+        if let Some(self_host) = component
+            .wasm
+            .allowed_http_hosts
+            .iter()
+            .flatten()
+            .find(|h| *h == "self")
+        {
+            bail!("Invalid allowed host {self_host:?} for component {:?}. Cloud currently does not yet support self.", component.id);
+        }
     }
     Ok(())
 }
