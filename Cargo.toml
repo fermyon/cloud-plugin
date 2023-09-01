@@ -31,12 +31,12 @@ semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.82"
 sha2 = "0.10.2"
-spin-common = { git = "https://github.com/vdice/spin", branch = "fix/pub-oci-client" }
-spin-loader = { git = "https://github.com/vdice/spin", branch = "fix/pub-oci-client" }
-spin-manifest = { git = "https://github.com/vdice/spin", branch = "fix/pub-oci-client" }
-spin-http = { git = "https://github.com/vdice/spin", branch = "fix/pub-oci-client" }
-spin-oci = { git = "https://github.com/vdice/spin", branch = "fix/pub-oci-client" }
-spin-trigger-http = { git = "https://github.com/vdice/spin", branch = "fix/pub-oci-client" }
+spin-common = { git = "https://github.com/radu-matei/spin", branch = "fix/pub-oci-client" }
+spin-loader = { git = "https://github.com/radu-matei/spin", branch = "fix/pub-oci-client" }
+spin-manifest = { git = "https://github.com/radu-matei/spin", branch = "fix/pub-oci-client" }
+spin-http = { git = "https://github.com/radu-matei/spin", branch = "fix/pub-oci-client" }
+spin-oci = { git = "https://github.com/radu-matei/spin", branch = "fix/pub-oci-client" }
+spin-trigger-http = { git = "https://github.com/radu-matei/spin", branch = "fix/pub-oci-client" }
 terminal = { git = "https://github.com/fermyon/spin", rev = "38e162b493316e744d4974675065dd9de20b3505" }
 tempfile = "3.3.0"
 url = "2.3"

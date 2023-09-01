@@ -1396,7 +1396,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b9429470923de8e8cbd4d2dc513535400b4b3fef0319fb5c4e1f520a7bef743"
 dependencies = [
  "crc32fast",
- "libz-ng-sys",
  "miniz_oxide",
 ]
 
@@ -2058,7 +2057,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
 dependencies = [
  "base64 0.21.2",
- "pem",
+ "pem 1.1.1",
  "ring",
  "serde",
  "serde_json",
@@ -2238,16 +2237,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libz-ng-sys"
-version = "1.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dd9f43e75536a46ee0f92b758f6b63846e594e86638c61a9251338a65baea63"
-dependencies = [
- "cmake",
- "libc",
-]
-
-[[package]]
 name = "linux-raw-sys"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2289,6 +2278,15 @@ name = "lru"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71e7d46de488603ffdd5f30afbc64fbba2378214a2c3a2fb83abf3d33126df17"
+dependencies = [
+ "hashbrown 0.13.2",
+]
+
+[[package]]
+name = "lru"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "718e8fae447df0c7e1ba7f5189829e63fd536945c8988d61444c19039f16b670"
 dependencies = [
  "hashbrown 0.13.2",
 ]
@@ -2395,9 +2393,9 @@ dependencies = [
 
 [[package]]
 name = "mysql_async"
-version = "0.30.0"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "456207bb9636a0fdade67a64cea7bdebe6730c3c16ee5e34f2c481838ee5a39e"
+checksum = "f5272f59b5b1f93d65f7f826c1f025d6e410e89fb50a67e05aa20b35a55a8c0a"
 dependencies = [
  "bytes",
  "crossbeam",
@@ -2406,17 +2404,18 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "lazy_static",
- "lru 0.7.8",
+ "lru 0.10.1",
  "mio",
  "mysql_common",
  "native-tls",
  "once_cell",
- "pem",
+ "pem 2.0.1",
  "percent-encoding",
  "pin-project",
+ "priority-queue",
  "serde",
  "serde_json",
- "socket2 0.4.9",
+ "socket2 0.5.3",
  "thiserror",
  "tokio",
  "tokio-native-tls",
@@ -2427,13 +2426,13 @@ dependencies = [
 
 [[package]]
 name = "mysql_common"
-version = "0.29.2"
+version = "0.30.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9006c95034ccf7b903d955f210469119f6c3477fc9c9e7a7845ce38a3e665c2a"
+checksum = "57349d5a326b437989b6ee4dc8f2f34b0cc131202748414712a8e7d98952fc8c"
 dependencies = [
- "base64 0.13.1",
+ "base64 0.21.2",
  "bindgen",
- "bitflags 1.3.2",
+ "bitflags 2.3.3",
  "bitvec",
  "byteorder",
  "bytes",
@@ -2455,6 +2454,7 @@ dependencies = [
  "smallvec",
  "subprocess",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]
@@ -2717,7 +2717,7 @@ dependencies = [
 [[package]]
 name = "outbound-http"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "http",
@@ -2732,7 +2732,7 @@ dependencies = [
 [[package]]
 name = "outbound-mysql"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "flate2",
@@ -2748,7 +2748,7 @@ dependencies = [
 [[package]]
 name = "outbound-pg"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "native-tls",
@@ -2763,7 +2763,7 @@ dependencies = [
 [[package]]
 name = "outbound-redis"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "redis",
@@ -2864,6 +2864,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8835c273a76a90455d7344889b0964598e3316e2a79ede8e36f16bdcf2228b8"
 dependencies = [
  "base64 0.13.1",
+]
+
+[[package]]
+name = "pem"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b13fe415cdf3c8e44518e18a7c95a13431d9bdf6d15367d82b23c377fdd441a"
+dependencies = [
+ "base64 0.21.2",
+ "serde",
 ]
 
 [[package]]
@@ -2996,6 +3006,16 @@ name = "ppv-lite86"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
+
+[[package]]
+name = "priority-queue"
+version = "1.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fff39edfcaec0d64e8d0da38564fad195d2d51b680940295fcc307366e101e61"
+dependencies = [
+ "autocfg",
+ "indexmap 1.9.3",
+]
 
 [[package]]
 name = "proc-macro-error"
@@ -3873,7 +3893,7 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 [[package]]
 name = "spin-app"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3887,7 +3907,7 @@ dependencies = [
 [[package]]
 name = "spin-common"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "dirs 4.0.0",
@@ -3910,7 +3930,7 @@ dependencies = [
 [[package]]
 name = "spin-config"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3928,7 +3948,7 @@ dependencies = [
 [[package]]
 name = "spin-core"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3946,7 +3966,7 @@ dependencies = [
 [[package]]
 name = "spin-http"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "http",
@@ -3961,7 +3981,7 @@ dependencies = [
 [[package]]
 name = "spin-key-value"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "lru 0.9.0",
@@ -3975,7 +3995,7 @@ dependencies = [
 [[package]]
 name = "spin-key-value-azure"
 version = "0.1.0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "azure_data_cosmos",
@@ -3990,7 +4010,7 @@ dependencies = [
 [[package]]
 name = "spin-key-value-redis"
 version = "0.1.0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "redis",
@@ -4004,7 +4024,7 @@ dependencies = [
 [[package]]
 name = "spin-key-value-sqlite"
 version = "0.1.0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "once_cell",
@@ -4018,7 +4038,7 @@ dependencies = [
 [[package]]
 name = "spin-loader"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4043,7 +4063,7 @@ dependencies = [
  "spin-config",
  "spin-manifest",
  "tempfile",
- "terminal 0.1.0 (git+https://github.com/vdice/spin?branch=fix/pub-oci-client)",
+ "terminal 0.1.0 (git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client)",
  "tokio",
  "tokio-util 0.6.10",
  "toml",
@@ -4054,7 +4074,7 @@ dependencies = [
 [[package]]
 name = "spin-manifest"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "indexmap 1.9.3",
  "serde",
@@ -4065,7 +4085,7 @@ dependencies = [
 [[package]]
 name = "spin-oci"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "base64 0.21.2",
@@ -4090,7 +4110,7 @@ dependencies = [
 [[package]]
 name = "spin-sqlite"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4104,7 +4124,7 @@ dependencies = [
 [[package]]
 name = "spin-sqlite-inproc"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4119,7 +4139,7 @@ dependencies = [
 [[package]]
 name = "spin-sqlite-libsql"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4133,7 +4153,7 @@ dependencies = [
 [[package]]
 name = "spin-trigger"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4164,7 +4184,7 @@ dependencies = [
  "spin-sqlite-inproc",
  "spin-sqlite-libsql",
  "spin-world",
- "terminal 0.1.0 (git+https://github.com/vdice/spin?branch=fix/pub-oci-client)",
+ "terminal 0.1.0 (git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client)",
  "tokio",
  "toml",
  "tracing",
@@ -4175,7 +4195,7 @@ dependencies = [
 [[package]]
 name = "spin-trigger-http"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4194,7 +4214,7 @@ dependencies = [
  "spin-http",
  "spin-trigger",
  "spin-world",
- "terminal 0.1.0 (git+https://github.com/vdice/spin?branch=fix/pub-oci-client)",
+ "terminal 0.1.0 (git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client)",
  "tls-listener",
  "tokio",
  "tokio-rustls 0.23.4",
@@ -4207,7 +4227,7 @@ dependencies = [
 [[package]]
 name = "spin-world"
 version = "1.5.0-pre0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "wasmtime",
 ]
@@ -4407,7 +4427,7 @@ dependencies = [
 [[package]]
 name = "terminal"
 version = "0.1.0"
-source = "git+https://github.com/vdice/spin?branch=fix/pub-oci-client#de77e7596d7f3f55c8b3745ad918aa9fb1c28d5a"
+source = "git+https://github.com/radu-matei/spin?branch=fix/pub-oci-client#76ef26b3c8e385de0c971c6ad8529543267523ee"
 dependencies = [
  "atty",
  "once_cell",
