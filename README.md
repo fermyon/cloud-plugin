@@ -10,32 +10,21 @@ spin plugin install --url https://github.com/fermyon/cloud-plugin/releases/downl
 
 ## Building and installing local changes
 
-1. Package the plugin.
+1. Install `spin pluginify`
+
+    ```sh
+    spin plugins update
+    spin plugins install pluginify --yes
+    ```
+
+2. Build, package and install the plugin.
 
     ```sh
     cargo build --release
-    cp target/release/cloud-plugin cloud
-    tar -czvf cloud.tar.gz cloud
-    sha256sum cloud.tar.gz
-    rm cloud
-    # Outputs a shasum to add to cloud.json
+    spin pluginify --install
     ```
 
-1. Get the manifest.
-
-    ```sh
-    curl -LRO https://github.com/fermyon/cloud-plugin/releases/download/canary/cloud.json
-    ```
-
-1. Update the manifest to modify the `url` field to point to the path to local package (i.e. `"url": "file:///path/to/cloud-plugin/plugin/cloud.tar.gz"`) and update the shasum.
-
-1. Install the plugin, pointing to the path to the manifest.
-
-    ```sh
-    spin plugin install -f ./plugin/cloud.json
-    ```
-
-1. Run the plugin.
+3. Run the plugin.
 
     ```sh
     spin cloud --help
