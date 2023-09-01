@@ -564,7 +564,7 @@ async fn create_default_database_if_does_not_exist(
         .get_databases(Some(app_id))
         .await?
         .into_iter()
-        .find(|d| d.default);
+        .find(|d| d.links.iter().any(|l| l.name == "default"));
 
     if default_db.is_none() {
         client

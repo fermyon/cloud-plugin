@@ -428,18 +428,20 @@ impl Client {
             .await
             .map_err(format_response_error)
     }
-
-    pub async fn get_databases(&self, app_id: Option<Uuid>) -> anyhow::Result<Vec<Database>> {
-        let list = api_sql_databases_get(
-            &self.configuration,
-            GetSqlDatabasesQuery {
-                app_id: Some(app_id),
-            },
-            None,
-        )
-        .await
-        .map_err(format_response_error)?;
-        Ok(list.databases)
+    pub async fn get_databases(
+        &self,
+        _app_id: Option<Uuid>,
+    ) -> anyhow::Result<Vec<crate::mocks::Database>> {
+        Ok(crate::mocks::mock_databases_list())
+    }
+    // TODO: ideally returns Some(prev dbname) if updated otherwise None
+    pub async fn create_link(
+        &self,
+        _link: &str,
+        _app_id: &str,
+        _database: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
     }
 }
 

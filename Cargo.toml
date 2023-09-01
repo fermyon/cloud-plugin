@@ -20,6 +20,7 @@ chrono = "0.4"
 clap = { version = "3.2.24", features = ["derive", "env"] }
 cloud = { path = "crates/cloud" }
 cloud-openapi = { workspace = true }
+comfy-table = "7"
 dirs = "5.0"
 dialoguer = "0.10"
 tokio = { version = "1.23", features = ["full"] }

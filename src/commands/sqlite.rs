@@ -1,7 +1,11 @@
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
 use cloud::client::Client as CloudClient;
-use cloud_openapi::models::Database;
+// use cloud_openapi::models::Database;
+use cloud::mocks::Database as MockDatabase;
+use cloud::mocks::Link;
 use dialoguer::Input;
 
 use crate::commands::create_cloud_client;
@@ -57,6 +61,13 @@ fn disallow_empty(statement: &str) -> anyhow::Result<String> {
 pub struct ListCommand {
     #[clap(flatten)]
     common: CommonArgs,
+    #[clap(short = 'a', long = "app")]
+    app: Option<String>,
+    #[clap(short = 'd', long = "database")]
+    database: Option<String>,
+    // TODO: like templates, enable multiple list formats
+    // #[clap(value_enum, long = "format", default_value = "table", hide = true)]
+    // pub format: ListFormat,
 }
 
 #[derive(Debug, Default, Args)]
@@ -113,23 +124,54 @@ impl SqliteCommand {
                 let list = CloudClient::get_databases(&client, None)
                     .await
                     .context("Problem listing databases")?;
-                print_databases(list);
+                print_databases(list, cmd.app, cmd.database);
             }
         }
         Ok(())
     }
 }
 
-fn print_databases(databases: Vec<Database>) {
+fn print_databases(
+    mut databases: Vec<MockDatabase>,
+    app: Option<String>,
+    database: Option<String>,
+) {
     if databases.is_empty() {
         println!("No databases");
         return;
     }
-    terminal::step!("Databases", "({})", databases.len());
-    for d in databases {
-        let default_str = if d.default { " (default)" } else { "" };
-        println!("{}{default_str}", d.name);
+    if let Some(name) = &database {
+        databases.retain(|db| db.name == *name);
     }
+    let no_link_dbs: Vec<_> = databases.iter().filter(|db| db.links.is_empty()).collect();
+    let mut links: Vec<Link> = databases.iter().flat_map(|db| db.links.clone()).collect();
+    if let Some(name) = &app {
+        links.retain(|l| l.app == *name);
+    }
+
+    let mut table = comfy_table::Table::new();
+    let header: Vec<&str> = vec!["Database", "Link"];
+    table.set_header(header);
+    no_link_dbs.into_iter().for_each(|db| {
+        table.add_row(vec![db.name.clone(), String::from("-")]);
+    });
+
+    if app.is_none() && database.is_none() {
+        let mut map = HashMap::new();
+        links.into_iter().for_each(|l| {
+            map.entry(l.database)
+                .and_modify(|v| *v = format!("{}, {}:{}", *v, l.app, l.name))
+                .or_insert(format!("{}:{}", l.app, l.name));
+        });
+        map.into_iter().for_each(|e| {
+            table.add_row(vec![e.0, e.1]);
+        })
+    } else {
+        links.into_iter().for_each(|l| {
+            table.add_row(vec![l.database.clone(), format!("{}:{}", l.app, l.name)]);
+        });
+    }
+    println!("{table}");
 }
 
 fn prompt_delete_database(database_name: &str) -> std::io::Result<bool> {
