@@ -405,7 +405,7 @@ impl DeployCommand {
         cloud_client: &CloudClient,
         name: String,
     ) -> Result<Option<Uuid>> {
-        let apps_vm = CloudClient::list_apps(cloud_client).await?;
+        let apps_vm = CloudClient::list_apps(cloud_client, DEFAULT_APPLIST_PAGE_SIZE, None).await?;
         let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
         match app {
             Some(a) => Ok(Some(a.id)),
@@ -595,6 +595,16 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
             .find(|db| *db != SPIN_DEFAULT_DATABASE)
         {
             bail!("Invalid database {invalid_db:?} for component {:?}. Cloud currently supports only the 'default' SQLite databases.", component.id);
+        }
+
+        if let Some(self_host) = component
+            .wasm
+            .allowed_http_hosts
+            .iter()
+            .flatten()
+            .find(|h| *h == "self")
+        {
+            bail!("Invalid allowed host {self_host:?} for component {:?}. Cloud currently does not yet support self.", component.id);
         }
     }
     Ok(())

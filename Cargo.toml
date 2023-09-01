@@ -37,7 +37,7 @@ spin-manifest = { git = "https://github.com/radu-matei/spin", branch = "fix/pub-
 spin-http = { git = "https://github.com/radu-matei/spin", branch = "fix/pub-oci-client" }
 spin-oci = { git = "https://github.com/radu-matei/spin", branch = "fix/pub-oci-client" }
 spin-trigger-http = { git = "https://github.com/radu-matei/spin", branch = "fix/pub-oci-client" }
-terminal = { git = "https://github.com/fermyon/spin", rev = "38e162b493316e744d4974675065dd9de20b3505" }
+terminal = { git = "https://github.com/fermyon/spin", rev = "ae0bed88460c2e06273fb15d893b74532da5aa68" }
 tempfile = "3.3.0"
 url = "2.3"
 uuid = { version = "1.3", features = ["v4"] }

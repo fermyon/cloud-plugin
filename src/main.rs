@@ -4,7 +4,8 @@ mod opts;
 use anyhow::{Error, Result};
 use clap::{FromArgMatches, Parser};
 use commands::{
-    deploy::DeployCommand, login::LoginCommand, sqlite::SqliteCommand, variables::VariablesCommand,
+    apps::AppsCommand, deploy::DeployCommand, login::LoginCommand, sqlite::SqliteCommand,
+    variables::VariablesCommand,
 };
 use semver::BuildMetadata;
 
@@ -22,6 +23,9 @@ const VERSION: &str = concat!(
 #[clap(author, version = VERSION, about, long_about = None)]
 #[clap(propagate_version = true)]
 enum CloudCli {
+    /// Manage applications deployed to Fermyon Cloud
+    #[clap(subcommand)]
+    Apps(AppsCommand),
     /// Package and upload an application to the Fermyon Cloud.
     Deploy(DeployCommand),
     /// Login to Fermyon Cloud
@@ -43,6 +47,7 @@ async fn main() -> Result<(), Error> {
     let cli = CloudCli::from_arg_matches(&matches)?;
 
     match cli {
+        CloudCli::Apps(cmd) => cmd.run().await,
         CloudCli::Deploy(cmd) => cmd.run().await,
         CloudCli::Login(cmd) => cmd.run().await,
         CloudCli::Variables(cmd) => cmd.run().await,

@@ -659,7 +659,7 @@ dependencies = [
  "spin-oci",
  "spin-trigger-http",
  "tempfile",
- "terminal 0.1.0 (git+https://github.com/fermyon/spin?rev=38e162b493316e744d4974675065dd9de20b3505)",
+ "terminal 0.1.0 (git+https://github.com/fermyon/spin?rev=ae0bed88460c2e06273fb15d893b74532da5aa68)",
  "tokio",
  "tracing",
  "url",
@@ -4437,7 +4437,7 @@ dependencies = [
 [[package]]
 name = "terminal"
 version = "0.1.0"
-source = "git+https://github.com/fermyon/spin?rev=38e162b493316e744d4974675065dd9de20b3505#38e162b493316e744d4974675065dd9de20b3505"
+source = "git+https://github.com/fermyon/spin?rev=ae0bed88460c2e06273fb15d893b74532da5aa68#ae0bed88460c2e06273fb15d893b74532da5aa68"
 dependencies = [
  "atty",
  "once_cell",
