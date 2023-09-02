@@ -90,15 +90,20 @@ impl SqliteCommand {
                 let list = CloudClient::get_databases(&client, None)
                     .await
                     .context("Problem fetching databases")?;
-                if !list.iter().any(|d| d.name == cmd.name) {
-                    anyhow::bail!("No database found with name \"{}\"", cmd.name);
-                }
-                // TODO: Fail if apps exist that are currently using a database
-                if cmd.yes || prompt_delete_database(&cmd.name)? {
-                    CloudClient::delete_database(&client, cmd.name.clone())
-                        .await
-                        .with_context(|| format!("Problem deleting database {}", cmd.name))?;
-                    println!("Database \"{}\" deleted", cmd.name);
+                let found = list.iter().find(|d| d.name == cmd.name);
+                match found {
+                    None => anyhow::bail!("No database found with name \"{}\"", cmd.name),
+                    Some(db) => {
+                        // TODO: Fail if apps exist that are currently using a database
+                        if cmd.yes || prompt_delete_database(&cmd.name, &db.links)? {
+                            CloudClient::delete_database(&client, cmd.name.clone())
+                                .await
+                                .with_context(|| {
+                                    format!("Problem deleting database {}", cmd.name)
+                                })?;
+                            println!("Database \"{}\" deleted", cmd.name);
+                        }
+                    }
                 }
             }
             Self::Execute(cmd) => {
@@ -143,10 +148,22 @@ fn print_databases(
     if let Some(name) = &database {
         databases.retain(|db| db.name == *name);
     }
+    struct DBLink {
+        name: String,
+        link: Link,
+    }
     let no_link_dbs: Vec<_> = databases.iter().filter(|db| db.links.is_empty()).collect();
-    let mut links: Vec<Link> = databases.iter().flat_map(|db| db.links.clone()).collect();
+    let mut links: Vec<DBLink> = databases
+        .iter()
+        .flat_map(|db| {
+            db.links.iter().map(|l| DBLink {
+                name: db.name.clone(),
+                link: l.clone(),
+            })
+        })
+        .collect();
     if let Some(name) = &app {
-        links.retain(|l| l.app == *name);
+        links.retain(|d| d.link.app == *name);
     }
 
     let mut table = comfy_table::Table::new();
@@ -158,29 +175,43 @@ fn print_databases(
 
     if app.is_none() && database.is_none() {
         let mut map = HashMap::new();
-        links.into_iter().for_each(|l| {
-            map.entry(l.database)
-                .and_modify(|v| *v = format!("{}, {}:{}", *v, l.app, l.name))
-                .or_insert(format!("{}:{}", l.app, l.name));
+        links.into_iter().for_each(|d| {
+            map.entry(d.name)
+                .and_modify(|v| *v = format!("{}, {}:{}", *v, d.link.app, d.link.name))
+                .or_insert(format!("{}:{}", d.link.app, d.link.name));
         });
         map.into_iter().for_each(|e| {
             table.add_row(vec![e.0, e.1]);
         })
     } else {
-        links.into_iter().for_each(|l| {
-            table.add_row(vec![l.database.clone(), format!("{}:{}", l.app, l.name)]);
+        links.into_iter().for_each(|d| {
+            table.add_row(vec![
+                d.name.clone(),
+                format!("{}:{}", d.link.app, d.link.name),
+            ]);
         });
     }
     println!("{table}");
 }
 
-fn prompt_delete_database(database_name: &str) -> std::io::Result<bool> {
+fn prompt_delete_database(database: &str, links: &[Link]) -> std::io::Result<bool> {
+    let existing_links = links
+        .iter()
+        .map(|l| format!("{}:{}", l.app, l.name))
+        .collect::<Vec<String>>()
+        .join(", ");
+    let mut prompt = String::new();
+    if !existing_links.is_empty() {
+        // TODO: use warning color text
+        prompt.push_str(&format!("Database \"{database}\" is currently linked to the following apps: {existing_links}.\n It is recommended to use `spin cloud link sqlite `link a new database to the apps before deleting."))
+    }
     let mut input = Input::<String>::new();
-    let prompt =
-        format!("The action is irreversible. Please type \"{database_name}\" for confirmation",);
+    prompt.push_str(&format!(
+        "The action is irreversible. Please type \"{database}\" for confirmation"
+    ));
     input.with_prompt(prompt);
     let answer = input.interact_text()?;
-    if answer != database_name {
+    if answer != database {
         println!("Invalid confirmation. Will not delete database.");
         Ok(false)
     } else {

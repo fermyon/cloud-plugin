@@ -2,7 +2,7 @@ use crate::commands::create_cloud_client;
 use crate::opts::*;
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
-use cloud::client::Client as CloudClient;
+use cloud::{client::Client as CloudClient, mocks::Database};
 
 /// Manage links between apps and resources
 #[derive(Parser, Debug)]
@@ -20,6 +20,8 @@ pub struct SqliteLinkCommand {
     app: String,
     #[clap(short = 'd', long = "database")]
     database: String,
+    #[clap(short = 'r', long = "remove", takes_value = false)]
+    remove: bool,
 }
 
 #[derive(Debug, Default, Args)]
@@ -37,35 +39,80 @@ struct CommonArgs {
 impl LinkCommand {
     pub async fn run(self) -> Result<()> {
         match self {
-            Self::Sqlite(cmd) => {
-                // let (client, app_id) = client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.app).await?;
-                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                let app_id = uuid::Uuid::new_v4();
+            Self::Sqlite(cmd) => cmd.link().await,
+        }
+    }
+}
 
-                let dbs = CloudClient::get_databases(&client, Some(app_id))
-                    .await
-                    .context("Problem listing databases")?;
+impl SqliteLinkCommand {
+    async fn link(self) -> Result<()> {
+        // let (client, app_id) = client_and_app_id(self.common.deployment_env_id.as_deref(), &self.app).await?;
+        let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
+        let app_id = uuid::Uuid::new_v4();
 
-                if dbs
-                    .into_iter()
-                    .any(|db| db.links.iter().any(|l| l.name == cmd.link))
-                {
+        let dbs = CloudClient::get_databases(&client, Some(app_id))
+            .await
+            .context("Problem listing databases")?;
+        let existing_linked_db: Option<Database> = dbs
+            .into_iter()
+            .find(|db| db.links.iter().any(|l| l.name == self.link));
+        match existing_linked_db {
+            Some(db) => {
+                if self.remove {
+                    CloudClient::remove_link(
+                        &client,
+                        &self.link,
+                        &app_id.to_string(),
+                        &self.database,
+                    )
+                    .await?;
+                } else if db.name == self.database {
                     anyhow::bail!(
-                        "No link found with name \"{}\" for app \"{}\"",
-                        cmd.link,
-                        cmd.app
+                        "Link \"{}\" already exists for app \"{}\" and database \"{}\"",
+                        self.link,
+                        self.app,
+                        self.database,
+                    );
+                } else {
+                    let res = dialoguer::Confirm::new()
+                        .with_prompt(format!(
+                            "Link \"{}\" already exists for app \"{}\" with database \"{}\"",
+                            self.link, self.app, self.database
+                        ))
+                        .default(true)
+                        .interact_opt()?;
+                    if let Some(update) = res {
+                        if update {
+                            CloudClient::create_link(
+                                &client,
+                                &self.link,
+                                &app_id.to_string(),
+                                &self.database,
+                            )
+                            .await?;
+                        } else {
+                            println!("Link will not be updated.")
+                        }
+                    }
+                }
+            }
+            None => {
+                if self.remove {
+                    println!(
+                        "Link \"{}\" does not exist for app \"{}\" and database \"{}\"",
+                        self.link, self.app, self.database,
                     );
                 } else {
                     CloudClient::create_link(
                         &client,
-                        &cmd.link,
+                        &self.link,
                         &app_id.to_string(),
-                        &cmd.database,
+                        &self.database,
                     )
                     .await?;
                 }
-                Ok(())
             }
         }
+        Ok(())
     }
 }

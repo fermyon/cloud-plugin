@@ -131,18 +131,13 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn add_app(
-        &self,
-        name: &str,
-        storage_id: &str,
-        create_default_database: bool,
-    ) -> Result<Uuid> {
+    pub async fn add_app(&self, name: &str, storage_id: &str) -> Result<Uuid> {
         api_apps_post(
             &self.configuration,
             CreateAppCommand {
                 name: name.to_string(),
                 storage_id: storage_id.to_string(),
-                create_default_database: Some(create_default_database),
+                create_default_database: None,
             },
             None,
         )
@@ -395,11 +390,16 @@ impl Client {
         Ok(list.vars)
     }
 
-    pub async fn create_database(&self, app_id: Option<Uuid>, name: String) -> anyhow::Result<()> {
+    pub async fn create_database(
+        &self,
+        name: &str,
+        app_id: Option<Uuid>,
+        _link: Option<String>,
+    ) -> anyhow::Result<()> {
         api_sql_databases_create_post(
             &self.configuration,
             CreateSqlDatabaseCommand {
-                name,
+                name: name.to_string(),
                 app_id: Some(app_id),
             },
             None,
@@ -441,6 +441,17 @@ impl Client {
         _app_id: &str,
         _database: &str,
     ) -> anyhow::Result<()> {
+        println!("entered create_link");
+        Ok(())
+    }
+
+    pub async fn remove_link(
+        &self,
+        _link: &str,
+        _app_id: &str,
+        _database: &str,
+    ) -> anyhow::Result<()> {
+        println!("entered remove_link");
         Ok(())
     }
 }
