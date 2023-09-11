@@ -20,7 +20,7 @@ concurrency: ${{ github.workflow }}
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: 1.68
+  RUST_VERSION: 1.71
 
 jobs:
   reset_canary_release: 
@@ -123,7 +123,7 @@ jobs:
         run: rustup target add --toolchain ${{ env.RUST_VERSION }} ${{ matrix.config.target }}
 
       - name: "Install Wasm Rust target"
-        run: rustup target add wasm32-wasi --toolchain 1.68 && rustup target add wasm32-unknown-unknown --toolchain 1.68
+        run: rustup target add wasm32-wasi --toolchain ${{ env.RUST_VERSION }} && rustup target add wasm32-unknown-unknown --toolchain ${{ env.RUST_VERSION }}
 
       - name: set the release version (main)
         shell: bash
