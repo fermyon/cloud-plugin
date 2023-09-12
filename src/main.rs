@@ -38,7 +38,7 @@ enum CloudCli {
     /// Manage Fermyon Cloud SQLite databases
     #[clap(subcommand)]
     Sqlite(SqliteCommand),
-    /// Manage links between resources and applications
+    /// Manage how apps and resources are linked together
     #[clap(subcommand)]
     Link(LinkCommand),
 }

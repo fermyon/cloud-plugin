@@ -392,14 +392,14 @@ impl Client {
 
     pub async fn create_database(
         &self,
-        name: &str,
+        name: String,
         app_id: Option<Uuid>,
         _link: Option<String>,
     ) -> anyhow::Result<()> {
         api_sql_databases_create_post(
             &self.configuration,
             CreateSqlDatabaseCommand {
-                name: name.to_string(),
+                name,
                 app_id: Some(app_id),
             },
             None,
@@ -437,7 +437,7 @@ impl Client {
     // TODO: ideally returns Some(prev dbname) if updated otherwise None
     pub async fn create_link(
         &self,
-        _link: &str,
+        _label: &str,
         _app_id: &str,
         _database: &str,
     ) -> anyhow::Result<()> {
@@ -447,7 +447,7 @@ impl Client {
 
     pub async fn remove_link(
         &self,
-        _link: &str,
+        _label: &str,
         _app_id: &str,
         _database: &str,
     ) -> anyhow::Result<()> {

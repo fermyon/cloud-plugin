@@ -189,18 +189,14 @@ impl DeployCommand {
         // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
         let channel_id = match get_app_id_cloud(&client, &name).await {
             Ok(app_id) => {
-                if uses_default_db(&cfg)
-                    && prompt_create_link_if_does_not_exist(
-                        &name,
-                        Some(app_id),
-                        &client,
-                        SPIN_DEFAULT_DATABASE,
-                    )
-                    .await?
-                    .is_none()
-                {
-                    // User canceled terminal interaction
-                    return Ok(());
+                for database in databases_used(&cfg) {
+                    if prompt_create_link_if_does_not_exist(&name, Some(app_id), &client, &database)
+                        .await?
+                        .is_none()
+                    {
+                        // User canceled terminal interaction
+                        return Ok(());
+                    }
                 }
                 CloudClient::add_revision(
                     &client,
@@ -592,27 +588,27 @@ async fn prompt_create_link_if_does_not_exist(
     app_name: &str,
     app_id: Option<Uuid>,
     client: &CloudClient,
-    link: &str,
+    label: &str,
 ) -> Result<Option<String>> {
     let databases = client.get_databases(app_id).await?;
     let existing_link = databases
         .iter()
-        .find(|d| d.links.iter().any(|l| l.name == link && l.app == app_name));
+        .find(|d| d.links.iter().any(|l| l.name == label && l.app == app_name));
     if let Some(db) = existing_link {
         return Ok(Some(db.name.clone()));
     }
-    let database_names = databases.iter().map(|d| d.name.clone()).collect();
-    prompt_create_link(client, app_name, app_id, link, database_names).await
+    let database_names = databases.into_iter().map(|d| d.name).collect();
+    prompt_create_link(client, app_name, app_id, label, database_names).await
 }
 
 async fn prompt_create_link(
     client: &CloudClient,
     app_name: &str,
     app_id: Option<Uuid>,
-    link: &str,
+    label: &str,
     databases: Vec<String>,
 ) -> Result<Option<String>> {
-    let prompt = format!("App \"{}\" requires access to a database through link \"{}\"\n Would you like to use the link with an existing database or a new database?", app_name, link);
+    let prompt = format!("App \"{app_name}\" accesses a database labeled \"{label}\"\nWould you like to link an existing database or create a new database?");
     let existing_opt = "Use an existing database and link app to it";
     let create_opt = "Create a new database and link the app to it";
     let opts = vec![existing_opt, create_opt];
@@ -626,8 +622,8 @@ async fn prompt_create_link(
         None => return Ok(None),
     };
     match index {
-        0 => prompt_link_to_existing_database(client, app_name, app_id, link, databases).await,
-        1 => prompt_link_to_new_database(client, app_name, app_id, link).await,
+        0 => prompt_link_to_existing_database(client, app_name, app_id, label, databases).await,
+        1 => prompt_link_to_new_database(client, app_name, app_id, label).await,
         _ => bail!("Choose unavailable option"),
     }
 }
@@ -636,10 +632,11 @@ async fn prompt_link_to_existing_database(
     client: &CloudClient,
     app_name: &str,
     app_id: Option<Uuid>,
-    link: &str,
+    label: &str,
     databases: Vec<String>,
 ) -> Result<Option<String>> {
-    let prompt = "Which database would you like to use?".to_string();
+    let prompt =
+        format!(r#"Which database would you like to link to {app_name} using the label "{label}""#);
     let index = match dialoguer::Select::new()
         .with_prompt(prompt)
         .items(&databases)
@@ -651,7 +648,7 @@ async fn prompt_link_to_existing_database(
     };
     if let Some(id) = app_id {
         client
-            .create_link(link, &id.to_string(), &databases[index])
+            .create_link(label, &id.to_string(), &databases[index])
             .await?;
     };
     Ok(Some(databases[index].clone()))
@@ -661,27 +658,37 @@ async fn prompt_link_to_new_database(
     client: &CloudClient,
     app_name: &str,
     app_id: Option<Uuid>,
-    link: &str,
+    label: &str,
 ) -> Result<Option<String>> {
-    // TODO: decide what to do for default db names
+    // TODO: use random name generator
     let default_name = format!("{app_name}-db");
-    let prompt = "What would you like to name your database?".to_string();
+    let prompt = format!(
+        r#"What would you like to name your database?\nNote: This name is used when managing your database at the account level. The app "{app_name}" will refer to this database by the label "{label}". Other apps can use different labels to refer to the same database."#
+    );
     let name = dialoguer::Input::new()
         .with_prompt(prompt)
         .default(default_name)
         .interact_text()?;
-    let create_link = app_id.map(|_| link.to_string());
-    client.create_database(&name, app_id, create_link).await?;
+    let create_link = app_id.map(|_| label.to_string());
+    client
+        .create_database(name.clone(), app_id, create_link)
+        .await?;
     Ok(Some(name))
 }
 
 fn uses_default_db(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> bool {
+    databases_used(cfg)
+        .iter()
+        .any(|db| db == SPIN_DEFAULT_DATABASE)
+}
+
+fn databases_used(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> Vec<String> {
     cfg.components
         .iter()
         .cloned()
         .filter_map(|c| c.wasm.sqlite_databases)
         .flatten()
-        .any(|db| db == SPIN_DEFAULT_DATABASE)
+        .collect()
 }
 
 fn random_buildinfo() -> BuildMetadata {

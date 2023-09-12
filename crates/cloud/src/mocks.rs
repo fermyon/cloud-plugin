@@ -10,29 +10,26 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn new(name: &str, links: Vec<Link>) -> Database {
-        Database {
-            name: name.to_string(),
-            links,
-        }
+    pub fn new(name: String, links: Vec<Link>) -> Database {
+        Database { name, links }
     }
 }
 
 impl Link {
-    pub fn new(name: &str, app: &str) -> Self {
-        Link {
-            name: name.to_string(),
-            app: app.to_string(),
-        }
+    pub fn new(name: String, app: String) -> Self {
+        Link { name, app }
     }
 }
 
 pub fn mock_databases_list() -> Vec<Database> {
-    let db1_links = vec![Link::new("foo", "app1"), Link::new("yee", "app2")];
-    let db2_links = vec![Link::new("bar", "app1")];
+    let db1_links = vec![
+        Link::new("foo".to_string(), "app1".to_string()),
+        Link::new("yee".to_string(), "app2".to_string()),
+    ];
+    let db2_links = vec![Link::new("bar".to_string(), "app1".to_string())];
     vec![
-        Database::new("db1", db1_links),
-        Database::new("db2", db2_links),
-        Database::new("db3", vec![]),
+        Database::new("db1".to_string(), db1_links),
+        Database::new("db2".to_string(), db2_links),
+        Database::new("db3".to_string(), vec![]),
     ]
 }

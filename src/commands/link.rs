@@ -4,9 +4,9 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser};
 use cloud::{client::Client as CloudClient, mocks::Database};
 
-/// Manage links between apps and resources
+/// Manage how apps and resources are linked together
 #[derive(Parser, Debug)]
-#[clap(about = "Manage links between apps and resources")]
+#[clap(about = "Manage how apps and resources are linked together")]
 pub enum LinkCommand {
     Sqlite(SqliteLinkCommand),
 }
@@ -15,6 +15,7 @@ pub enum LinkCommand {
 pub struct SqliteLinkCommand {
     #[clap(flatten)]
     common: CommonArgs,
+    // TODO: validate link syntax
     link: String,
     #[clap(short = 'a', long = "app")]
     app: String,
