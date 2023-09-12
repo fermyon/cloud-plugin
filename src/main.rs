@@ -33,7 +33,7 @@ enum CloudCli {
     /// Manage Spin application variables
     #[clap(subcommand, alias = "vars")]
     Variables(VariablesCommand),
-    /// Manage Fermyon Cloud SQLite databases
+    /// Manage Fermyon Cloud NoOps SQL databases
     #[clap(subcommand)]
     Sqlite(SqliteCommand),
 }
