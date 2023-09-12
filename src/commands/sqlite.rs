@@ -163,7 +163,7 @@ fn print_databases(
         })
         .collect();
     if let Some(name) = &app {
-        links.retain(|d| d.link.app == *name);
+        links.retain(|d| d.link.app_id.to_string() == *name);
     }
 
     let mut table = comfy_table::Table::new();
@@ -177,8 +177,8 @@ fn print_databases(
         let mut map = HashMap::new();
         links.into_iter().for_each(|d| {
             map.entry(d.name)
-                .and_modify(|v| *v = format!("{}, {}:{}", *v, d.link.app, d.link.name))
-                .or_insert(format!("{}:{}", d.link.app, d.link.name));
+                .and_modify(|v| *v = format!("{}, {}:{}", *v, d.link.app_id, d.link.label))
+                .or_insert(format!("{}:{}", d.link.app_id, d.link.label));
         });
         map.into_iter().for_each(|e| {
             table.add_row(vec![e.0, e.1]);
@@ -187,7 +187,7 @@ fn print_databases(
         links.into_iter().for_each(|d| {
             table.add_row(vec![
                 d.name.clone(),
-                format!("{}:{}", d.link.app, d.link.name),
+                format!("{}:{}", d.link.app_id, d.link.label),
             ]);
         });
     }
@@ -197,7 +197,7 @@ fn print_databases(
 fn prompt_delete_database(database: &str, links: &[Link]) -> std::io::Result<bool> {
     let existing_links = links
         .iter()
-        .map(|l| format!("{}:{}", l.app, l.name))
+        .map(|l| format!("{}:{}", l.app_id, l.label))
         .collect::<Vec<String>>()
         .join(", ");
     let mut prompt = String::new();

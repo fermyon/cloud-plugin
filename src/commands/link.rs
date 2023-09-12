@@ -6,7 +6,6 @@ use cloud::{client::Client as CloudClient, mocks::Database};
 
 /// Manage how apps and resources are linked together
 #[derive(Parser, Debug)]
-#[clap(about = "Manage how apps and resources are linked together")]
 pub enum LinkCommand {
     Sqlite(SqliteLinkCommand),
 }
@@ -56,7 +55,7 @@ impl SqliteLinkCommand {
             .context("Problem listing databases")?;
         let existing_linked_db: Option<Database> = dbs
             .into_iter()
-            .find(|db| db.links.iter().any(|l| l.name == self.link));
+            .find(|db| db.links.iter().any(|l| l.label == self.link));
         match existing_linked_db {
             Some(db) => {
                 if self.remove {

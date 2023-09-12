@@ -35,6 +35,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::mocks::Link;
+
 const JSON_MIME_TYPE: &str = "application/json";
 
 pub struct Client {
@@ -390,17 +392,12 @@ impl Client {
         Ok(list.vars)
     }
 
-    pub async fn create_database(
-        &self,
-        name: String,
-        app_id: Option<Uuid>,
-        _link: Option<String>,
-    ) -> anyhow::Result<()> {
+    pub async fn create_database(&self, name: String, link: Option<Link>) -> anyhow::Result<()> {
         api_sql_databases_create_post(
             &self.configuration,
             CreateSqlDatabaseCommand {
                 name,
-                app_id: Some(app_id),
+                app_id: Some(link.map(|l| l.app_id)),
             },
             None,
         )
@@ -434,6 +431,7 @@ impl Client {
     ) -> anyhow::Result<Vec<crate::mocks::Database>> {
         Ok(crate::mocks::mock_databases_list())
     }
+
     // TODO: ideally returns Some(prev dbname) if updated otherwise None
     pub async fn create_link(
         &self,
