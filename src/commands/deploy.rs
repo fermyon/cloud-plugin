@@ -190,19 +190,18 @@ impl DeployCommand {
         let channel_id = match get_app_id_cloud(&client, &name).await? {
             Some(app_id) => {
                 for label in databases_used(&cfg) {
-                    if let DatabaseSelectionForExisting::Selection(selection) =
-                        get_database_selection_for_existing_app(&name, &client, app_id, &label)
-                            .await?
+                    let link = Link { app_id, label };
+                    if let DatabaseForExistingApp::UserSelection(selection) =
+                        get_database_selection_for_existing_app(&name, &client, &link).await?
                     {
                         match selection {
                             // User canceled terminal interaction
                             DatabaseSelection::Cancelled => return Ok(()),
                             DatabaseSelection::New(db) => {
-                                let link = Link { app_id, label };
                                 client.create_database(db, Some(link)).await?;
                             }
                             DatabaseSelection::Existing(db) => {
-                                CloudClient::create_link(&client, &label, &app_id.to_string(), &db)
+                                CloudClient::create_link(&client, &link, &db)
                                     .await
                                     .with_context(|| {
                                         format!(
@@ -275,16 +274,14 @@ impl DeployCommand {
                     .context("Unable to create app")?;
 
                 for (database_to_link, label) in databases_to_link {
-                    CloudClient::create_link(
-                        &client,
-                        &label,
-                        &app_id.to_string(),
-                        &database_to_link,
-                    )
-                    .await
-                    .with_context(|| {
-                        format!("Could not link database \"{database_to_link}\" to app \"{name}\"")
-                    })?;
+                    let link = Link { label, app_id };
+                    CloudClient::create_link(&client, &link, &database_to_link)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "Failed to link database \"{database_to_link}\" to app \"{name}\""
+                            )
+                        })?;
                 }
 
                 // When creating the new app, InitialRevisionImport command is triggered
@@ -605,34 +602,31 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
     Ok(())
 }
 
+/// A user's selection of a database to link to a label
 enum DatabaseSelection {
     Existing(String),
     New(String),
     Cancelled,
 }
 
-enum DatabaseSelectionForExisting {
-    Selection(DatabaseSelection),
+/// A user's selection of a database to link to a
+enum DatabaseForExistingApp {
+    UserSelection(DatabaseSelection),
     AlreadyLinked,
 }
 
 async fn get_database_selection_for_existing_app(
     app_name: &str,
     client: &CloudClient,
-    app_id: Uuid,
-    label: &str,
-) -> Result<DatabaseSelectionForExisting> {
-    let databases = client.get_databases(Some(app_id)).await?;
-    if databases.iter().any(|d| {
-        d.links
-            .iter()
-            .any(|l| l.label == label && l.app_id == app_id)
-    }) {
-        return Ok(DatabaseSelectionForExisting::AlreadyLinked);
+    link: &Link,
+) -> Result<DatabaseForExistingApp> {
+    let databases = client.get_databases(Some(link.app_id)).await?;
+    if databases.iter().any(|d| d.links.iter().any(|l| l == link)) {
+        return Ok(DatabaseForExistingApp::AlreadyLinked);
     }
     let database_names = databases.into_iter().map(|d| d.name).collect();
-    let selection = prompt_database_selection(client, app_name, label, database_names)?;
-    Ok(DatabaseSelectionForExisting::Selection(selection))
+    let selection = prompt_database_selection(client, app_name, &link.label, database_names)?;
+    Ok(DatabaseForExistingApp::UserSelection(selection))
 }
 
 async fn get_database_selection_for_new_app(

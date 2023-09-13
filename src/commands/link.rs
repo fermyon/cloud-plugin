@@ -2,7 +2,10 @@ use crate::commands::create_cloud_client;
 use crate::opts::*;
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
-use cloud::{client::Client as CloudClient, mocks::Database};
+use cloud::{
+    client::Client as CloudClient,
+    mocks::{Database, Link},
+};
 
 /// Manage how apps and resources are linked together
 #[derive(Parser, Debug)]
@@ -14,8 +17,8 @@ pub enum LinkCommand {
 pub struct SqliteLinkCommand {
     #[clap(flatten)]
     common: CommonArgs,
-    // TODO: validate link syntax
-    link: String,
+    // TODO: validate label syntax
+    label: String,
     #[clap(short = 'a', long = "app")]
     app: String,
     #[clap(short = 'd', long = "database")]
@@ -53,65 +56,48 @@ impl SqliteLinkCommand {
         let dbs = CloudClient::get_databases(&client, Some(app_id))
             .await
             .context("Problem listing databases")?;
-        let existing_linked_db: Option<Database> = dbs
-            .into_iter()
-            .find(|db| db.links.iter().any(|l| l.label == self.link));
+        let existing_linked_db: Option<Database> =
+            dbs.into_iter().find(|db| db.has_label(&self.label));
+        let link = Link {
+            app_id,
+            label: self.label,
+        };
         match existing_linked_db {
-            Some(db) => {
-                if self.remove {
-                    CloudClient::remove_link(
-                        &client,
-                        &self.link,
-                        &app_id.to_string(),
-                        &self.database,
-                    )
-                    .await?;
-                } else if db.name == self.database {
-                    anyhow::bail!(
-                        "Link \"{}\" already exists for app \"{}\" and database \"{}\"",
-                        self.link,
-                        self.app,
-                        self.database,
-                    );
-                } else {
-                    let res = dialoguer::Confirm::new()
-                        .with_prompt(format!(
-                            "Link \"{}\" already exists for app \"{}\" with database \"{}\"",
-                            self.link, self.app, self.database
-                        ))
-                        .default(true)
-                        .interact_opt()?;
-                    if let Some(update) = res {
-                        if update {
-                            CloudClient::create_link(
-                                &client,
-                                &self.link,
-                                &app_id.to_string(),
-                                &self.database,
-                            )
-                            .await?;
-                        } else {
-                            println!("Link will not be updated.")
-                        }
+            Some(_) if self.remove => {
+                CloudClient::remove_link(&client, &link, &self.database).await?;
+            }
+            Some(db) if db.name == self.database => {
+                anyhow::bail!(
+                    r#"Link "{}" already exists for app "{}" and database "{}""#,
+                    link.label,
+                    self.app,
+                    self.database,
+                );
+            }
+            Some(_) => {
+                // TODO: Why do we update here? Is updating a noop?
+                let res = dialoguer::Confirm::new()
+                    .with_prompt(format!(
+                        r#"Database "{}" is already linked to "{}" with label "{}""#,
+                        self.database, self.app, link.label
+                    ))
+                    .default(true)
+                    .interact_opt()?;
+                if let Some(update) = res {
+                    if update {
+                        CloudClient::create_link(&client, &link, &self.database).await?;
+                    } else {
+                        println!("Link will not be updated.")
                     }
                 }
             }
-            None => {
-                if self.remove {
-                    println!(
-                        "Link \"{}\" does not exist for app \"{}\" and database \"{}\"",
-                        self.link, self.app, self.database,
-                    );
-                } else {
-                    CloudClient::create_link(
-                        &client,
-                        &self.link,
-                        &app_id.to_string(),
-                        &self.database,
-                    )
-                    .await?;
-                }
+            None if self.remove => {
+                println!(
+                    r#"Link "{}" does not exist for app "{}" and database "{}""#,
+                    link.label, self.app, self.database,
+                );
             }
+            None => CloudClient::create_link(&client, &link, &self.database).await?,
         }
         Ok(())
     }

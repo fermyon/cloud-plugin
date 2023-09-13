@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Link {
     pub label: String,
     pub app_id: Uuid,
@@ -9,6 +9,12 @@ pub struct Link {
 pub struct Database {
     pub name: String,
     pub links: Vec<Link>,
+}
+
+impl Database {
+    pub fn has_label(&self, label: &str) -> bool {
+        self.links.iter().any(|l| l.label == label)
+    }
 }
 
 impl Database {

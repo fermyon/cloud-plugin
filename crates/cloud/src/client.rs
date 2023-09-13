@@ -13,8 +13,7 @@ use cloud_openapi::{
         key_value_pairs_api::api_key_value_pairs_post,
         revisions_api::{api_revisions_get, api_revisions_post},
         sql_databases_api::{
-            api_sql_databases_create_post, api_sql_databases_delete,
-            api_sql_databases_execute_post, api_sql_databases_get,
+            api_sql_databases_create_post, api_sql_databases_delete, api_sql_databases_execute_post,
         },
         variable_pairs_api::{
             api_variable_pairs_delete, api_variable_pairs_get, api_variable_pairs_post,
@@ -24,10 +23,10 @@ use cloud_openapi::{
     models::{
         AppItemPage, ChannelItem, ChannelItemPage, ChannelRevisionSelectionStrategy,
         CreateAppCommand, CreateChannelCommand, CreateDeviceCodeCommand, CreateKeyValuePairCommand,
-        CreateSqlDatabaseCommand, CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand,
+        CreateSqlDatabaseCommand, CreateVariablePairCommand, DeleteSqlDatabaseCommand,
         DeleteVariablePairCommand, DeviceCodeItem, EnvironmentVariableItem,
-        ExecuteSqlStatementCommand, GetChannelLogsVm, GetSqlDatabasesQuery, GetVariablesQuery,
-        RefreshTokenCommand, RegisterRevisionCommand, RevisionItemPage, TokenInfo,
+        ExecuteSqlStatementCommand, GetChannelLogsVm, GetVariablesQuery, RefreshTokenCommand,
+        RegisterRevisionCommand, RevisionItemPage, TokenInfo,
     },
 };
 use reqwest::header;
@@ -433,22 +432,12 @@ impl Client {
     }
 
     // TODO: ideally returns Some(prev dbname) if updated otherwise None
-    pub async fn create_link(
-        &self,
-        _label: &str,
-        _app_id: &str,
-        _database: &str,
-    ) -> anyhow::Result<()> {
+    pub async fn create_link(&self, _link: &Link, _database: &str) -> anyhow::Result<()> {
         println!("entered create_link");
         Ok(())
     }
 
-    pub async fn remove_link(
-        &self,
-        _label: &str,
-        _app_id: &str,
-        _database: &str,
-    ) -> anyhow::Result<()> {
+    pub async fn remove_link(&self, _link: &Link, _database: &str) -> anyhow::Result<()> {
         println!("entered remove_link");
         Ok(())
     }
