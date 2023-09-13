@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser};
 use cloud::client::Client as CloudClient;
 // use cloud_openapi::models::Database;
+use cloud::mocks::AppLabel;
 use cloud::mocks::Database as MockDatabase;
-use cloud::mocks::Link;
 use dialoguer::Input;
 
 use crate::commands::create_cloud_client;
@@ -150,7 +150,7 @@ fn print_databases(
     }
     struct DBLink {
         name: String,
-        link: Link,
+        link: AppLabel,
     }
     let no_link_dbs: Vec<_> = databases.iter().filter(|db| db.links.is_empty()).collect();
     let mut links: Vec<DBLink> = databases
@@ -194,7 +194,7 @@ fn print_databases(
     println!("{table}");
 }
 
-fn prompt_delete_database(database: &str, links: &[Link]) -> std::io::Result<bool> {
+fn prompt_delete_database(database: &str, links: &[AppLabel]) -> std::io::Result<bool> {
     let existing_links = links
         .iter()
         .map(|l| format!("{}:{}", l.app_id, l.label))

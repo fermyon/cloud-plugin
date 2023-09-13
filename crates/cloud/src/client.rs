@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::mocks::Link;
+use crate::mocks::AppLabel;
 
 const JSON_MIME_TYPE: &str = "application/json";
 
@@ -391,7 +391,11 @@ impl Client {
         Ok(list.vars)
     }
 
-    pub async fn create_database(&self, name: String, link: Option<Link>) -> anyhow::Result<()> {
+    pub async fn create_database(
+        &self,
+        name: String,
+        link: Option<AppLabel>,
+    ) -> anyhow::Result<()> {
         api_sql_databases_create_post(
             &self.configuration,
             CreateSqlDatabaseCommand {
@@ -424,6 +428,7 @@ impl Client {
             .await
             .map_err(format_response_error)
     }
+
     pub async fn get_databases(
         &self,
         _app_id: Option<Uuid>,
@@ -431,13 +436,27 @@ impl Client {
         Ok(crate::mocks::mock_databases_list())
     }
 
+    pub async fn get_database(
+        &self,
+        _name: &str,
+    ) -> anyhow::Result<Option<crate::mocks::Database>> {
+        Ok(None)
+    }
+
+    pub async fn list_links(
+        &self,
+        _app_id: Option<Uuid>,
+    ) -> anyhow::Result<Vec<crate::mocks::Link>> {
+        Ok(crate::mocks::mock_links_list())
+    }
+
     // TODO: ideally returns Some(prev dbname) if updated otherwise None
-    pub async fn create_link(&self, _link: &Link, _database: &str) -> anyhow::Result<()> {
+    pub async fn create_link(&self, _link: &AppLabel, _database: &str) -> anyhow::Result<()> {
         println!("entered create_link");
         Ok(())
     }
 
-    pub async fn remove_link(&self, _link: &Link, _database: &str) -> anyhow::Result<()> {
+    pub async fn remove_link(&self, _link: &AppLabel, _database: &str) -> anyhow::Result<()> {
         println!("entered remove_link");
         Ok(())
     }

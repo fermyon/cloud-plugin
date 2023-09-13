@@ -5,7 +5,7 @@ use bindle::Id;
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::client::{Client as CloudClient, ConnectionConfig};
-use cloud::mocks::{Database as MockDatabase, Link};
+use cloud::mocks::{AppLabel, Database as MockDatabase};
 use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
 use cloud_openapi::models::Database;
 use rand::Rng;
@@ -190,7 +190,7 @@ impl DeployCommand {
         let channel_id = match get_app_id_cloud(&client, &name).await? {
             Some(app_id) => {
                 for label in databases_used(&cfg) {
-                    let link = Link { app_id, label };
+                    let link = AppLabel { app_id, label };
                     if let DatabaseForExistingApp::UserSelection(selection) =
                         get_database_selection_for_existing_app(&name, &client, &link).await?
                     {
@@ -274,7 +274,7 @@ impl DeployCommand {
                     .context("Unable to create app")?;
 
                 for (database_to_link, label) in databases_to_link {
-                    let link = Link { label, app_id };
+                    let link = AppLabel { label, app_id };
                     CloudClient::create_link(&client, &link, &database_to_link)
                         .await
                         .with_context(|| {
@@ -618,7 +618,7 @@ enum DatabaseForExistingApp {
 async fn get_database_selection_for_existing_app(
     app_name: &str,
     client: &CloudClient,
-    link: &Link,
+    link: &AppLabel,
 ) -> Result<DatabaseForExistingApp> {
     let databases = client.get_databases(Some(link.app_id)).await?;
     if databases.iter().any(|d| d.links.iter().any(|l| l == link)) {
