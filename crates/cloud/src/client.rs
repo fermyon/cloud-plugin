@@ -429,10 +429,7 @@ impl Client {
             .map_err(format_response_error)
     }
 
-    pub async fn get_databases(
-        &self,
-        _app_id: Option<Uuid>,
-    ) -> anyhow::Result<Vec<crate::mocks::Database>> {
+    pub async fn get_databases(&self) -> anyhow::Result<Vec<crate::mocks::Database>> {
         Ok(crate::mocks::mock_databases_list())
     }
 

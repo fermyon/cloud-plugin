@@ -195,7 +195,7 @@ impl DeployCommand {
                         label,
                         app_name: app_name.clone(),
                     };
-                    if let DatabaseForExistingApp::UserSelection(selection) =
+                    if let ExistingAppDatabaseSelection::NotYetLinked(selection) =
                         get_database_selection_for_existing_app(&app_name, &client, &app_label)
                             .await?
                     {
@@ -625,10 +625,9 @@ enum DatabaseSelection {
     Cancelled,
 }
 
-/// A enum of a database to link to a label or indication that the link is
-/// already resolved
-enum DatabaseForExistingApp {
-    UserSelection(DatabaseSelection),
+/// Whether a database has already been linked or not
+enum ExistingAppDatabaseSelection {
+    NotYetLinked(DatabaseSelection),
     AlreadyLinked,
 }
 
@@ -636,16 +635,13 @@ async fn get_database_selection_for_existing_app(
     app_name: &str,
     client: &CloudClient,
     app_label: &AppLabel,
-) -> Result<DatabaseForExistingApp> {
-    let databases = client.get_databases(Some(app_label.app_id)).await?;
-    if databases
-        .iter()
-        .any(|d| d.links.iter().any(|l| l == app_label))
-    {
-        return Ok(DatabaseForExistingApp::AlreadyLinked);
+) -> Result<ExistingAppDatabaseSelection> {
+    let databases = client.get_databases().await?;
+    if databases.iter().any(|d| d.has_link(app_label)) {
+        return Ok(ExistingAppDatabaseSelection::AlreadyLinked);
     }
     let selection = prompt_database_selection(client, app_name, &app_label.label, databases)?;
-    Ok(DatabaseForExistingApp::UserSelection(selection))
+    Ok(ExistingAppDatabaseSelection::NotYetLinked(selection))
 }
 
 async fn get_database_selection_for_new_app(
@@ -653,7 +649,7 @@ async fn get_database_selection_for_new_app(
     client: &CloudClient,
     label: &str,
 ) -> Result<DatabaseSelection> {
-    let databases = client.get_databases(None).await?;
+    let databases = client.get_databases().await?;
     prompt_database_selection(client, app_name, label, databases)
 }
 
