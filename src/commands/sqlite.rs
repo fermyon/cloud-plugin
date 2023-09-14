@@ -15,12 +15,23 @@ use crate::opts::*;
 #[derive(Parser, Debug)]
 #[clap(about = "Manage Fermyon Cloud SQLite databases")]
 pub enum SqliteCommand {
+    /// Create a SQLite database
+    Create(CreateCommand),
     /// Delete a SQLite database
     Delete(DeleteCommand),
     /// Execute SQL against a SQLite database
     Execute(ExecuteCommand),
     /// List all SQLite databases of a user
     List(ListCommand),
+}
+
+#[derive(Parser, Debug)]
+pub struct CreateCommand {
+    /// Name of database to create
+    name: String,
+
+    #[clap(flatten)]
+    common: CommonArgs,
 }
 
 #[derive(Parser, Debug)]
@@ -85,6 +96,19 @@ struct CommonArgs {
 impl SqliteCommand {
     pub async fn run(self) -> Result<()> {
         match self {
+            Self::Create(cmd) => {
+                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
+                let list = CloudClient::get_databases(&client)
+                    .await
+                    .context("Problem fetching databases")?;
+                if list.iter().any(|d| d.name == cmd.name) {
+                    anyhow::bail!("Database {} already exists", cmd.name)
+                }
+                CloudClient::create_database(&client, cmd.name.clone(), None)
+                    .await
+                    .with_context(|| format!("Problem creating database {}", cmd.name))?;
+                println!("Database \"{}\" created", cmd.name);
+            }
             Self::Delete(cmd) => {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
                 let list = CloudClient::get_databases(&client)
