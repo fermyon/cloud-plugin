@@ -5,7 +5,7 @@ use bindle::Id;
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::client::{Client as CloudClient, ConnectionConfig};
-use cloud::mocks::{AppLabel, Database as MockDatabase};
+use cloud::mocks::{self, AppLabel, Database as MockDatabase, DatabaseLink};
 use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
 use cloud_openapi::models::Database;
 use rand::Rng;
@@ -180,36 +180,39 @@ impl DeployCommand {
         let bindle_id = self
             .create_and_push_bindle(buildinfo, bindle_connection_info)
             .await?;
-        let name = bindle_id.name().to_string();
+        let app_name = bindle_id.name().to_string();
 
         println!("Deploying...");
 
         // Create or update app
         // TODO: this process involves many calls to Cloud. Should be able to update the channel
         // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
-        let channel_id = match get_app_id_cloud(&client, &name).await? {
+        let channel_id = match get_app_id_cloud(&client, &app_name).await? {
             Some(app_id) => {
-                for label in databases_used(&cfg) {
-                    let link = AppLabel {
+                for label in sqlite_labels_used(&cfg) {
+                    let app_label = AppLabel {
                         app_id,
                         label,
-                        app_name: name.clone(),
+                        app_name: app_name.clone(),
                     };
                     if let DatabaseForExistingApp::UserSelection(selection) =
-                        get_database_selection_for_existing_app(&name, &client, &link).await?
+                        get_database_selection_for_existing_app(&app_name, &client, &app_label)
+                            .await?
                     {
                         match selection {
                             // User canceled terminal interaction
                             DatabaseSelection::Cancelled => return Ok(()),
                             DatabaseSelection::New(db) => {
-                                client.create_database(db, Some(link)).await?;
+                                client.create_database(db, Some(app_label)).await?;
                             }
                             DatabaseSelection::Existing(db) => {
-                                CloudClient::create_link(&client, &link, &db)
+                                let link = DatabaseLink::new(app_label, db);
+                                CloudClient::create_link(&client, &link)
                                     .await
                                     .with_context(|| {
                                         format!(
-                                            "Could not link database \"{db}\" to app \"{name}\""
+                                            r#"Could not link database "{}" to app "{}""#,
+                                            link.database, link.app_label.app_name,
                                         )
                                     })?;
                             }
@@ -218,7 +221,7 @@ impl DeployCommand {
                 }
                 CloudClient::add_revision(
                     &client,
-                    name.clone(),
+                    app_name.clone(),
                     bindle_id.version_string().clone(),
                 )
                 .await?;
@@ -257,37 +260,42 @@ impl DeployCommand {
                 existing_channel_id
             }
             None => {
-                let labels = databases_used(&cfg);
+                let labels = sqlite_labels_used(&cfg);
                 let mut databases_to_link = Vec::new();
                 for label in labels {
-                    let db =
-                        match get_database_selection_for_new_app(&name, &client, &label).await? {
-                            DatabaseSelection::Existing(db) => db,
-                            DatabaseSelection::New(db) => {
-                                client.create_database(db.clone(), None).await?;
-                                db
-                            }
-                            // User canceled terminal interaction
-                            DatabaseSelection::Cancelled => return Ok(()),
-                        };
+                    let db = match get_database_selection_for_new_app(&app_name, &client, &label)
+                        .await?
+                    {
+                        DatabaseSelection::Existing(db) => db,
+                        DatabaseSelection::New(db) => {
+                            client.create_database(db.clone(), None).await?;
+                            db
+                        }
+                        // User canceled terminal interaction
+                        DatabaseSelection::Cancelled => return Ok(()),
+                    };
                     databases_to_link.push((db, label));
                 }
 
-                let app_id = CloudClient::add_app(&client, &name, &name)
+                let app_id = CloudClient::add_app(&client, &app_name, &app_name)
                     .await
                     .context("Unable to create app")?;
 
                 for (database_to_link, label) in databases_to_link {
-                    let link = AppLabel {
-                        label,
-                        app_id,
-                        app_name: name.clone(),
-                    };
-                    CloudClient::create_link(&client, &link, &database_to_link)
+                    let link = DatabaseLink::new(
+                        AppLabel {
+                            label,
+                            app_id,
+                            app_name: app_name.clone(),
+                        },
+                        database_to_link,
+                    );
+                    CloudClient::create_link(&client, &link)
                         .await
                         .with_context(|| {
                             format!(
-                                "Failed to link database \"{database_to_link}\" to app \"{name}\""
+                                r#"Failed to link database "{}" to app "{}""#,
+                                link.database, link.app_label.app_name
                             )
                         })?;
                 }
@@ -627,14 +635,16 @@ enum DatabaseForExistingApp {
 async fn get_database_selection_for_existing_app(
     app_name: &str,
     client: &CloudClient,
-    link: &AppLabel,
+    app_label: &AppLabel,
 ) -> Result<DatabaseForExistingApp> {
-    let databases = client.get_databases(Some(link.app_id)).await?;
-    if databases.iter().any(|d| d.links.iter().any(|l| l == link)) {
+    let databases = client.get_databases(Some(app_label.app_id)).await?;
+    if databases
+        .iter()
+        .any(|d| d.links.iter().any(|l| l == app_label))
+    {
         return Ok(DatabaseForExistingApp::AlreadyLinked);
     }
-    let database_names = databases.into_iter().map(|d| d.name).collect();
-    let selection = prompt_database_selection(client, app_name, &link.label, database_names)?;
+    let selection = prompt_database_selection(client, app_name, &app_label.label, databases)?;
     Ok(DatabaseForExistingApp::UserSelection(selection))
 }
 
@@ -644,17 +654,19 @@ async fn get_database_selection_for_new_app(
     label: &str,
 ) -> Result<DatabaseSelection> {
     let databases = client.get_databases(None).await?;
-    let database_names = databases.into_iter().map(|d| d.name).collect();
-    prompt_database_selection(client, app_name, label, database_names)
+    prompt_database_selection(client, app_name, label, databases)
 }
 
 fn prompt_database_selection(
     client: &CloudClient,
     app_name: &str,
     label: &str,
-    databases: Vec<String>,
+    databases: Vec<mocks::Database>,
 ) -> Result<DatabaseSelection> {
-    let prompt = format!("App \"{app_name}\" accesses a database labeled \"{label}\"\nWould you like to link an existing database or create a new database?");
+    let prompt = format!(
+        r#"App "{app_name}" accesses a database labeled "{label}"
+        Would you like to link an existing database or create a new database?"#
+    );
     let existing_opt = "Use an existing database and link app to it";
     let create_opt = "Create a new database and link the app to it";
     let opts = vec![existing_opt, create_opt];
@@ -668,7 +680,12 @@ fn prompt_database_selection(
         None => return Ok(DatabaseSelection::Cancelled),
     };
     match index {
-        0 => prompt_for_existing_database(client, app_name, label, databases),
+        0 => prompt_for_existing_database(
+            client,
+            app_name,
+            label,
+            databases.into_iter().map(|d| d.name).collect::<Vec<_>>(),
+        ),
         1 => prompt_link_to_new_database(client, app_name, label),
         _ => bail!("Choose unavailable option"),
     }
@@ -678,20 +695,20 @@ fn prompt_for_existing_database(
     client: &CloudClient,
     app_name: &str,
     label: &str,
-    databases: Vec<String>,
+    mut database_names: Vec<String>,
 ) -> Result<DatabaseSelection> {
     let prompt =
         format!(r#"Which database would you like to link to {app_name} using the label "{label}""#);
     let index = match dialoguer::Select::new()
         .with_prompt(prompt)
-        .items(&databases)
+        .items(&database_names)
         .default(0)
         .interact_opt()?
     {
         Some(i) => i,
         None => return Ok(DatabaseSelection::Cancelled),
     };
-    Ok(DatabaseSelection::Existing(databases[index].clone()))
+    Ok(DatabaseSelection::Existing(database_names.remove(index)))
 }
 
 fn prompt_link_to_new_database(
@@ -711,13 +728,7 @@ fn prompt_link_to_new_database(
     Ok(DatabaseSelection::New(name))
 }
 
-fn uses_default_db(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> bool {
-    databases_used(cfg)
-        .iter()
-        .any(|db| db == SPIN_DEFAULT_DATABASE)
-}
-
-fn databases_used(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> Vec<String> {
+fn sqlite_labels_used(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> Vec<String> {
     cfg.components
         .iter()
         .cloned()

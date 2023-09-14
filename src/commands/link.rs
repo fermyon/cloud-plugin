@@ -2,7 +2,10 @@ use crate::commands::create_cloud_client;
 use crate::opts::*;
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
-use cloud::{client::Client as CloudClient, mocks::AppLabel};
+use cloud::{
+    client::Client as CloudClient,
+    mocks::{AppLabel, DatabaseLink},
+};
 
 /// Manage how apps and resources are linked together
 #[derive(Parser, Debug)]
@@ -55,16 +58,13 @@ impl SqliteLinkCommand {
             anyhow::bail!(r#"Database "{}" does not exist"#, self.database)
         }
 
-        let links = CloudClient::list_links(&client, Some(app_id))
+        let links_for_app = CloudClient::list_links(&client, Some(app_id))
             .await
             .context("Problem listing links")?;
-        let existing_link_for_database = links.iter().find(|l| l.database == self.database);
-        let existing_link_with_name = links.iter().find(|l| l.app_label.label == self.label);
-        let link = AppLabel {
-            app_id,
-            label: self.label,
-            app_name: self.app,
-        };
+        let existing_link_for_database = links_for_app.iter().find(|l| l.database == self.database);
+        let existing_link_with_name = links_for_app
+            .iter()
+            .find(|l| l.app_label.label == self.label);
         match (existing_link_for_database, existing_link_with_name) {
             (Some(link), _) => {
                 anyhow::bail!(
@@ -82,7 +82,15 @@ impl SqliteLinkCommand {
                 );
             }
             (None, None) => {
-                CloudClient::create_link(&client, &link, &self.database).await?;
+                let link = DatabaseLink::new(
+                    AppLabel {
+                        app_id,
+                        label: self.label,
+                        app_name: self.app,
+                    },
+                    self.database,
+                );
+                CloudClient::create_link(&client, &link).await?;
             }
         }
         Ok(())
