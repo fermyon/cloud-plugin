@@ -429,34 +429,35 @@ impl Client {
             .map_err(format_response_error)
     }
 
-    pub async fn get_databases(
-        &self,
-        _app_id: Option<Uuid>,
-    ) -> anyhow::Result<Vec<crate::mocks::Database>> {
+    pub async fn get_databases(&self) -> anyhow::Result<Vec<crate::mocks::Database>> {
         Ok(crate::mocks::mock_databases_list())
     }
 
-    pub async fn get_database(
-        &self,
-        _name: &str,
-    ) -> anyhow::Result<Option<crate::mocks::Database>> {
-        Ok(None)
+    pub async fn get_database(&self, name: &str) -> anyhow::Result<Option<crate::mocks::Database>> {
+        Ok(Some(crate::mocks::Database {
+            name: name.to_owned(),
+            links: vec![],
+        }))
     }
 
     pub async fn list_links(
         &self,
-        _app_id: Option<Uuid>,
-    ) -> anyhow::Result<Vec<crate::mocks::Link>> {
+        app_id: Option<Uuid>,
+    ) -> anyhow::Result<Vec<crate::mocks::DatabaseLink>> {
+        let _ = app_id;
         Ok(crate::mocks::mock_links_list())
     }
 
-    // TODO: ideally returns Some(prev dbname) if updated otherwise None
-    pub async fn create_link(&self, _link: &AppLabel, _database: &str) -> anyhow::Result<()> {
+    /// Do we want to future proof this? Right now this assumes all links are to databases
+    /// but that might not be true in the future.
+    pub async fn create_link(&self, link: &crate::mocks::DatabaseLink) -> anyhow::Result<()> {
+        let _ = link;
         println!("entered create_link");
         Ok(())
     }
 
-    pub async fn remove_link(&self, _link: &AppLabel, _database: &str) -> anyhow::Result<()> {
+    pub async fn remove_link(&self, link: &crate::mocks::DatabaseLink) -> anyhow::Result<()> {
+        let _ = link;
         println!("entered remove_link");
         Ok(())
     }

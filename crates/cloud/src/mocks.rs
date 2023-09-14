@@ -1,5 +1,6 @@
 use uuid::Uuid;
 
+/// A label representing a resource for a given app
 #[derive(Clone, PartialEq)]
 pub struct AppLabel {
     pub label: String,
@@ -8,17 +9,21 @@ pub struct AppLabel {
 }
 
 #[derive(Clone, PartialEq)]
-pub struct Link {
+pub struct DatabaseLink {
     pub app_label: AppLabel,
     pub database: String,
 }
 
-impl Link {
-    fn new(app_label: AppLabel, database: String) -> Self {
+impl DatabaseLink {
+    pub fn new(app_label: AppLabel, database: String) -> Self {
         Self {
             app_label,
             database,
         }
+    }
+
+    pub fn has_label(&self, label: &str) -> bool {
+        self.app_label.label == label
     }
 }
 
@@ -43,8 +48,9 @@ impl Database {
     }
 }
 
+// TODO: remove all of this mocking code
 impl AppLabel {
-    pub fn new(label: String) -> Self {
+    fn new(label: String) -> Self {
         let app_id = Uuid::new_v4();
         let app_name = format!("myapp-{}", app_id.as_simple());
         AppLabel {
@@ -68,9 +74,9 @@ pub fn mock_databases_list() -> Vec<Database> {
     ]
 }
 
-pub fn mock_links_list() -> Vec<Link> {
+pub fn mock_links_list() -> Vec<DatabaseLink> {
     vec![
-        Link::new(AppLabel::new("foo".to_string()), "db1".to_string()),
-        Link::new(AppLabel::new("yee".to_string()), "db2".to_string()),
+        DatabaseLink::new(AppLabel::new("foo".to_string()), "db1".to_string()),
+        DatabaseLink::new(AppLabel::new("yee".to_string()), "db2".to_string()),
     ]
 }

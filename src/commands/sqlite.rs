@@ -87,7 +87,7 @@ impl SqliteCommand {
         match self {
             Self::Delete(cmd) => {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                let list = CloudClient::get_databases(&client, None)
+                let list = CloudClient::get_databases(&client)
                     .await
                     .context("Problem fetching databases")?;
                 let found = list.iter().find(|d| d.name == cmd.name);
@@ -108,7 +108,7 @@ impl SqliteCommand {
             }
             Self::Execute(cmd) => {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                let list = CloudClient::get_databases(&client, None)
+                let list = CloudClient::get_databases(&client)
                     .await
                     .context("Problem fetching databases")?;
                 if !list.iter().any(|d| d.name == cmd.name) {
@@ -126,7 +126,7 @@ impl SqliteCommand {
             }
             Self::List(cmd) => {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                let list = CloudClient::get_databases(&client, None)
+                let list = CloudClient::get_databases(&client)
                     .await
                     .context("Problem listing databases")?;
                 print_databases(list, cmd.app, cmd.database);
