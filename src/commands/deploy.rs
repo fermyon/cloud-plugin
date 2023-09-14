@@ -190,7 +190,11 @@ impl DeployCommand {
         let channel_id = match get_app_id_cloud(&client, &name).await? {
             Some(app_id) => {
                 for label in databases_used(&cfg) {
-                    let link = AppLabel { app_id, label };
+                    let link = AppLabel {
+                        app_id,
+                        label,
+                        app_name: name.clone(),
+                    };
                     if let DatabaseForExistingApp::UserSelection(selection) =
                         get_database_selection_for_existing_app(&name, &client, &link).await?
                     {
@@ -274,7 +278,11 @@ impl DeployCommand {
                     .context("Unable to create app")?;
 
                 for (database_to_link, label) in databases_to_link {
-                    let link = AppLabel { label, app_id };
+                    let link = AppLabel {
+                        label,
+                        app_id,
+                        app_name: name.clone(),
+                    };
                     CloudClient::create_link(&client, &link, &database_to_link)
                         .await
                         .with_context(|| {
@@ -609,7 +617,8 @@ enum DatabaseSelection {
     Cancelled,
 }
 
-/// A user's selection of a database to link to a
+/// A enum of a database to link to a label or indication that the link is
+/// already resolved
 enum DatabaseForExistingApp {
     UserSelection(DatabaseSelection),
     AlreadyLinked,
