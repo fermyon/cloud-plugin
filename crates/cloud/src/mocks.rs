@@ -4,6 +4,7 @@ use uuid::Uuid;
 pub struct AppLabel {
     pub label: String,
     pub app_id: Uuid,
+    pub app_name: String,
 }
 
 #[derive(Clone, PartialEq)]
@@ -45,7 +46,12 @@ impl Database {
 impl AppLabel {
     pub fn new(label: String) -> Self {
         let app_id = Uuid::new_v4();
-        AppLabel { label, app_id }
+        let app_name = format!("myapp-{}", app_id.as_simple());
+        AppLabel {
+            label,
+            app_id,
+            app_name,
+        }
     }
 }
 

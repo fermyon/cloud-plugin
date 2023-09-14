@@ -63,20 +63,21 @@ impl SqliteLinkCommand {
         let link = AppLabel {
             app_id,
             label: self.label,
+            app_name: self.app,
         };
         match (existing_link_for_database, existing_link_with_name) {
             (Some(link), _) => {
                 anyhow::bail!(
                     r#"Database "{}" is already linked to app "{}" with label "{}""#,
                     link.database,
-                    self.app,
+                    link.app_label.app_name,
                     link.app_label.label,
                 );
             }
             (_, Some(link)) => {
                 anyhow::bail!(
                     r#"A Database is already linked to app "{}" with the label "{}""#,
-                    self.app,
+                    link.app_label.app_name,
                     link.app_label.label,
                 );
             }
