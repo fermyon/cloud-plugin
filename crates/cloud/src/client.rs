@@ -433,11 +433,11 @@ impl Client {
         Ok(crate::mocks::mock_databases_list())
     }
 
-    pub async fn get_database(
-        &self,
-        _name: &str,
-    ) -> anyhow::Result<Option<crate::mocks::Database>> {
-        Ok(None)
+    pub async fn get_database(&self, name: &str) -> anyhow::Result<Option<crate::mocks::Database>> {
+        Ok(Some(crate::mocks::Database {
+            name: name.to_owned(),
+            links: vec![],
+        }))
     }
 
     pub async fn list_links(

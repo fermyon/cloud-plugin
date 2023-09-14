@@ -21,6 +21,10 @@ impl DatabaseLink {
             database,
         }
     }
+
+    pub fn has_label(&self, label: &str) -> bool {
+        self.app_label.label == label
+    }
 }
 
 pub struct Database {

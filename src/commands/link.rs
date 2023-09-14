@@ -10,6 +10,7 @@ use cloud::{
 /// Manage how apps and resources are linked together
 #[derive(Parser, Debug)]
 pub enum LinkCommand {
+    /// Link an app to a sqlite database
     Sqlite(SqliteLinkCommand),
 }
 
@@ -17,10 +18,13 @@ pub enum LinkCommand {
 pub struct SqliteLinkCommand {
     #[clap(flatten)]
     common: CommonArgs,
+    /// The name by which the application will refer to the database
     // TODO: validate label syntax
     label: String,
     #[clap(short = 'a', long = "app")]
+    /// The app that will be using the database
     app: String,
+    /// The database that the app will be referring to by the label
     #[clap(short = 'd', long = "database")]
     database: String,
 }
@@ -62,11 +66,10 @@ impl SqliteLinkCommand {
             .await
             .context("Problem listing links")?;
         let existing_link_for_database = links_for_app.iter().find(|l| l.database == self.database);
-        let existing_link_with_name = links_for_app
-            .iter()
-            .find(|l| l.app_label.label == self.label);
-        match (existing_link_for_database, existing_link_with_name) {
+        let existing_link_with_label = links_for_app.iter().find(|l| l.has_label(&self.label));
+        match (existing_link_for_database, existing_link_with_label) {
             (Some(link), _) => {
+                // TODO: is this so bad? Why not allow linking an app to a database through multiple labels?
                 anyhow::bail!(
                     r#"Database "{}" is already linked to app "{}" with label "{}""#,
                     link.database,
