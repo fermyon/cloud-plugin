@@ -11,12 +11,10 @@ use semver::BuildMetadata;
 use sha2::{Digest, Sha256};
 use spin_common::{arg_parser::parse_kv, sloth};
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
-use spin_loader::{
-    local::{
-        assets,
-        config::{self, RawAppManifest},
-        parent_dir,
-    },
+use spin_loader::local::{
+    assets,
+    config::{self, RawAppManifest},
+    parent_dir,
 };
 use spin_manifest::{ApplicationTrigger, HttpTriggerConfiguration, TriggerConfig};
 use tokio::fs;
@@ -470,13 +468,17 @@ impl DeployCommand {
     ) -> Result<Option<String>> {
         let mut client = spin_oci::Client::new(connection_config.insecure, None).await?;
 
-        let cloud_url = Url::parse(connection_config.url.as_str()).context("Unable to parse cloud URL")?;
-        let cloud_host = cloud_url.host_str().context("Unable to derive host from cloud URL")?;
+        let cloud_url =
+            Url::parse(connection_config.url.as_str()).context("Unable to parse cloud URL")?;
+        let cloud_host = cloud_url
+            .host_str()
+            .context("Unable to derive host from cloud URL")?;
         let cloud_registry_host = format!("registry.{cloud_host}");
 
         let reference = match buildinfo {
             Some(buildinfo) => {
-                format!("{}/{}:{}",
+                format!(
+                    "{}/{}:{}",
                     cloud_registry_host,
                     &sanitize_app_name(&application.info.name),
                     &sanitize_app_version(
@@ -485,9 +487,10 @@ impl DeployCommand {
                 )
             }
             None => {
-                format!("{}/{}",
+                format!(
+                    "{}/{}",
                     cloud_registry_host,
-                     &sanitize_app_name(&application.info.name)
+                    &sanitize_app_name(&application.info.name)
                 )
             }
         };
