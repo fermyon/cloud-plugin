@@ -487,33 +487,30 @@ impl DeployCommand {
     ) -> Result<Option<String>> {
         let mut client = spin_oci::Client::new(connection_config.insecure, None).await?;
 
-        let cloud_url = Url::parse(connection_config.url.as_str())?;
-        let mut cloud_registry_url = cloud_url;
-        let _result = match cloud_registry_url.set_host(Some(
-            &("registry.".to_owned() + cloud_registry_url.host_str().unwrap()),
-        )) {
-            Err(err) => Err(anyhow!("Unable to construct cloud registry URL: {err:?}")),
-            Ok(()) => Ok(()),
-        };
+        let cloud_url = Url::parse(connection_config.url.as_str()).context("Unable to parse cloud URL")?;
+        let cloud_host = cloud_url.host_str().context("Unable to derive host from cloud URL")?;
+        let cloud_registry_host = format!("registry.{cloud_host}");
+
         let reference = match buildinfo {
             Some(buildinfo) => {
-                cloud_registry_url.domain().unwrap().to_owned()
-                    + "/"
-                    + &sanitize_app_name(&application.info.name)
-                    + ":"
-                    + &sanitize_app_version(
+                format!("{}/{}:{}",
+                    cloud_registry_host,
+                    &sanitize_app_name(&application.info.name),
+                    &sanitize_app_version(
                         &(application.info.version.to_owned() + "-" + &buildinfo),
                     )
+                )
             }
             None => {
-                cloud_registry_url.domain().unwrap().to_owned()
-                    + "/"
-                    + &sanitize_app_name(&application.info.name)
+                format!("{}/{}",
+                    cloud_registry_host,
+                     &sanitize_app_name(&application.info.name)
+                )
             }
         };
 
         let oci_ref = Reference::try_from(reference.as_ref())
-            .unwrap_or_else(|_| panic!("Could not parse reference '{reference}'"));
+            .context(format!("Could not parse reference '{reference}'"))?;
 
         client.insert_token(
             &oci_ref,
