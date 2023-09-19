@@ -2,7 +2,6 @@ pub const DEFAULT_MANIFEST_FILE: &str = spin_common::paths::DEFAULT_MANIFEST_FIL
 pub const APP_MANIFEST_FILE_OPT: &str = "APP_MANIFEST_FILE";
 pub const BUILDINFO_OPT: &str = "BUILDINFO";
 pub const INSECURE_OPT: &str = "INSECURE";
-pub const STAGING_DIR_OPT: &str = "STAGING_DIR";
 pub const CLOUD_SERVER_URL_OPT: &str = "CLOUD_SERVER_URL";
 pub const CLOUD_URL_ENV: &str = "CLOUD_URL";
 pub const DEPLOYMENT_ENV_NAME_ENV: &str = "FERMYON_DEPLOYMENT_ENVIRONMENT";

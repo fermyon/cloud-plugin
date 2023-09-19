@@ -12,7 +12,6 @@ use sha2::{Digest, Sha256};
 use spin_common::{arg_parser::parse_kv, sloth};
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
 use spin_loader::{
-    bindle::BindleConnectionInfo,
     local::{
         assets,
         config::{self, RawAppManifest},
@@ -47,7 +46,6 @@ use crate::{
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
 const SPIN_DEFAULT_DATABASE: &str = "default";
-const BINDLE_REGISTRY_URL_PATH: &str = "api/registry";
 
 /// Package and upload an application to the Fermyon Cloud.
 #[derive(Parser, Debug)]
@@ -65,15 +63,6 @@ pub struct DeployCommand {
     )]
     pub app_source: PathBuf,
 
-    /// Path to assemble the bindle before pushing (defaults to
-    /// a temporary directory)
-    #[clap(
-        name = STAGING_DIR_OPT,
-        long = "staging-dir",
-        short = 'd',
-    )]
-    pub staging_dir: Option<PathBuf>,
-
     /// Disable attaching buildinfo
     #[clap(
         long = "no-buildinfo",
@@ -82,17 +71,13 @@ pub struct DeployCommand {
     )]
     pub no_buildinfo: bool,
 
-    /// Build metadata to append to the bindle version
+    /// Build metadata to append to the oci tag
     #[clap(
         name = BUILDINFO_OPT,
         long = "buildinfo",
         parse(try_from_str = parse_buildinfo),
     )]
     pub buildinfo: Option<BuildMetadata>,
-
-    /// Deploy existing bindle if it already exists on bindle server
-    #[clap(short = 'e', long = "deploy-existing-bindle")]
-    pub redeploy: bool,
 
     /// How long in seconds to wait for a deployed HTTP application to become
     /// ready. The default is 60 seconds. Set it to 0 to skip waiting
@@ -195,8 +180,6 @@ impl DeployCommand {
         println!("Deploying...");
 
         // Create or update app
-        // TODO: this process involves many calls to Cloud. Should be able to update the channel
-        // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
         let channel_id = match get_app_id_cloud(&client, &name).await {
             Ok(app_id) => {
                 if uses_default_db(&cfg) {
@@ -670,7 +653,7 @@ enum Destination {
 
 async fn wait_for_ready(
     app_base_url: &Url,
-    bindle_version: &str,
+    app_version: &str,
     readiness_timeout_secs: u16,
     destination: Destination,
 ) {
@@ -692,7 +675,7 @@ async fn wait_for_ready(
     print!("Waiting for application to become ready");
     let _ = std::io::stdout().flush();
     loop {
-        match is_ready(&app_info_url, bindle_version).await {
+        match is_ready(&app_info_url, app_version).await {
             Err(err) => {
                 println!("... readiness check failed: {err:?}");
                 return;
@@ -738,7 +721,7 @@ async fn is_ready(app_info_url: &str, expected_version: &str) -> Result<bool> {
         tracing::debug!("App not ready: {}", resp.status());
         return Ok(false);
     }
-    // If the app was previously deployed then it will have an outdated bindle
+    // If the app was previously deployed then it will have an outdated
     // version, in which case the app isn't ready
     if let Ok(app_info) = resp.json::<AppInfo>().await {
         let active_version = app_info.oci_image_digest;
