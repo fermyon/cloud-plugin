@@ -25,6 +25,7 @@ use tracing::instrument;
 
 use std::{
     collections::HashSet,
+    env,
     fs::File,
     io::{self, copy, Write},
     path::PathBuf,
@@ -169,6 +170,9 @@ impl DeployCommand {
         let app_file = spin_common::paths::resolve_manifest_file_path(&self.app_source)?;
         let dir = tempfile::tempdir()?;
         let application = spin_loader::local::from_file(&app_file, Some(dir.path())).await?;
+
+        // TODO: can remove once spin_oci inlines small files by default
+        std::env::set_var("SPIN_OCI_SKIP_INLINED_FILES", "true");
 
         // TODO: Is there a more helpful value (oci ref) that we could return here to inform version
         // or is buildinfo already appropriate?
