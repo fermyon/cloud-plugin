@@ -1,15 +1,13 @@
 mod commands;
 mod opts;
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{Error, Result};
 use clap::{FromArgMatches, Parser};
 use commands::{
     apps::AppsCommand, deploy::DeployCommand, login::LoginCommand, sqlite::SqliteCommand,
     variables::VariablesCommand,
 };
 use semver::BuildMetadata;
-use spin_bindle::PublishError;
-use std::path::Path;
 
 /// Returns build information, similar to: 0.1.0 (2be4034 2022-03-31).
 const VERSION: &str = concat!(
@@ -23,6 +21,7 @@ const VERSION: &str = concat!(
 
 #[derive(Parser)]
 #[clap(author, version = VERSION, about, long_about = None)]
+#[clap(propagate_version = true)]
 enum CloudCli {
     /// Manage applications deployed to Fermyon Cloud
     #[clap(subcommand)]
@@ -53,23 +52,6 @@ async fn main() -> Result<(), Error> {
         CloudCli::Login(cmd) => cmd.run().await,
         CloudCli::Variables(cmd) => cmd.run().await,
         CloudCli::Sqlite(cmd) => cmd.run().await,
-    }
-}
-
-pub(crate) fn push_all_failed_msg(path: &Path, server_url: &str) -> String {
-    format!(
-        "Failed to push bindle from '{}' to the server at '{}'",
-        path.display(),
-        server_url
-    )
-}
-
-pub(crate) fn wrap_prepare_bindle_error(err: PublishError) -> anyhow::Error {
-    match err {
-        PublishError::MissingBuildArtifact(_) => {
-            anyhow!("{}\n\nPlease try to run `spin build` first", err)
-        }
-        e => anyhow!(e),
     }
 }
 

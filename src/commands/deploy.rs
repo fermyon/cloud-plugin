@@ -1,24 +1,20 @@
 #![allow(unused)]
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use bindle::Id;
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::client::{Client as CloudClient, ConnectionConfig};
 use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
-use cloud_openapi::models::Database;
+use oci_distribution::{token_cache, Reference, RegistryOperation};
 use rand::Rng;
 use semver::BuildMetadata;
 use sha2::{Digest, Sha256};
 use spin_common::{arg_parser::parse_kv, sloth};
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
-use spin_loader::{
-    bindle::BindleConnectionInfo,
-    local::{
-        assets,
-        config::{self, RawAppManifest},
-        parent_dir,
-    },
+use spin_loader::local::{
+    assets,
+    config::{self, RawAppManifest},
+    parent_dir,
 };
 use spin_manifest::{ApplicationTrigger, HttpTriggerConfiguration, TriggerConfig};
 use tokio::fs;
@@ -26,6 +22,7 @@ use tracing::instrument;
 
 use std::{
     collections::HashSet,
+    env,
     fs::File,
     io::{self, copy, Write},
     path::PathBuf,
@@ -47,7 +44,6 @@ use crate::{
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
 const SPIN_DEFAULT_DATABASE: &str = "default";
-const BINDLE_REGISTRY_URL_PATH: &str = "api/registry";
 
 /// Package and upload an application to the Fermyon Cloud.
 #[derive(Parser, Debug)]
@@ -65,15 +61,6 @@ pub struct DeployCommand {
     )]
     pub app_source: PathBuf,
 
-    /// Path to assemble the bindle before pushing (defaults to
-    /// a temporary directory)
-    #[clap(
-        name = STAGING_DIR_OPT,
-        long = "staging-dir",
-        short = 'd',
-    )]
-    pub staging_dir: Option<PathBuf>,
-
     /// Disable attaching buildinfo
     #[clap(
         long = "no-buildinfo",
@@ -82,17 +69,13 @@ pub struct DeployCommand {
     )]
     pub no_buildinfo: bool,
 
-    /// Build metadata to append to the bindle version
+    /// Build metadata to append to the oci tag
     #[clap(
         name = BUILDINFO_OPT,
         long = "buildinfo",
         parse(try_from_str = parse_buildinfo),
     )]
     pub buildinfo: Option<BuildMetadata>,
-
-    /// Deploy existing bindle if it already exists on bindle server
-    #[clap(short = 'e', long = "deploy-existing-bindle")]
-    pub redeploy: bool,
 
     /// How long in seconds to wait for a deployed HTTP application to become
     /// ready. The default is 60 seconds. Set it to 0 to skip waiting
@@ -161,47 +144,49 @@ impl DeployCommand {
         let buildinfo = if !self.no_buildinfo {
             match &self.buildinfo {
                 Some(i) => Some(i.clone()),
-                // FIXME(lann): As a workaround for buggy partial bindle uploads,
-                // force a new bindle version on every upload.
                 None => Some(random_buildinfo()),
             }
         } else {
             None
         };
 
-        let su = Url::parse(login_connection.url.as_str())?;
-        let bindle_connection_info = BindleConnectionInfo::from_token(
-            su.join(BINDLE_REGISTRY_URL_PATH)?.to_string(),
-            login_connection.danger_accept_invalid_certs,
-            login_connection.token,
-        );
+        let app_file = spin_common::paths::resolve_manifest_file_path(&self.app_source)?;
+        let dir = tempfile::tempdir()?;
+        let application = spin_loader::local::from_file(&app_file, Some(dir.path())).await?;
 
-        let bindle_id = self
-            .create_and_push_bindle(buildinfo, bindle_connection_info)
+        // TODO: can remove once spin_oci inlines small files by default
+        std::env::set_var("SPIN_OCI_SKIP_INLINED_FILES", "true");
+
+        let digest = self
+            .push_oci(
+                application.clone(),
+                buildinfo.clone(),
+                connection_config.clone(),
+            )
             .await?;
-        let name = bindle_id.name().to_string();
+
+        let name = sanitize_app_name(&application.info.name);
+        let storage_id = format!("oci://{}", name);
+        let version = sanitize_app_version(
+            &(application.info.version
+                + "-"
+                + &buildinfo.clone().context("Cannot parse build info")?),
+        );
 
         println!("Deploying...");
 
         // Create or update app
-        // TODO: this process involves many calls to Cloud. Should be able to update the channel
-        // via only `add_revision` if bindle naming schema is updated so bindles can be deterministically ordered by Cloud.
         let channel_id = match get_app_id_cloud(&client, &name).await {
             Ok(app_id) => {
                 if uses_default_db(&cfg) {
                     create_default_database_if_does_not_exist(&name, app_id, &client).await?;
                 }
-                CloudClient::add_revision(
-                    &client,
-                    name.clone(),
-                    bindle_id.version_string().clone(),
-                )
-                .await?;
+                CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
                 let existing_channel_id = self
                     .get_channel_id_cloud(&client, SPIN_DEPLOY_CHANNEL_NAME.to_string(), app_id)
                     .await?;
                 let active_revision_id = self
-                    .get_revision_id_cloud(&client, bindle_id.version_string().clone(), app_id)
+                    .get_revision_id_cloud(&client, version.clone(), app_id)
                     .await?;
                 CloudClient::patch_channel(
                     &client,
@@ -233,15 +218,14 @@ impl DeployCommand {
             }
             Err(_) => {
                 let create_default_db = uses_default_db(&cfg);
-                let app_id = CloudClient::add_app(&client, &name, &name, create_default_db)
+                let app_id = CloudClient::add_app(&client, &name, &storage_id, create_default_db)
                     .await
                     .context("Unable to create app")?;
 
-                // When creating the new app, InitialRevisionImport command is triggered
-                // which automatically imports all revisions from bindle into db
-                // therefore we do not need to call add_revision api explicitly here
+                CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
+
                 let active_revision_id = self
-                    .get_revision_id_cloud(&client, bindle_id.version_string().clone(), app_id)
+                    .get_revision_id_cloud(&client, version.clone(), app_id)
                     .await?;
 
                 let channel_id = CloudClient::add_channel(
@@ -280,9 +264,9 @@ impl DeployCommand {
         if let Ok(http_config) = HttpTriggerConfiguration::try_from(cfg.info.trigger.clone()) {
             wait_for_ready(
                 &app_base_url,
-                &bindle_id.version_string(),
+                &digest.unwrap_or_default(),
                 self.readiness_timeout_secs,
-                Destination::Cloud(connection_config.url),
+                Destination::Cloud(connection_config.clone().url),
             )
             .await;
             print_available_routes(&app_base_url, &http_config.base, &cfg);
@@ -415,7 +399,7 @@ impl DeployCommand {
     async fn get_revision_id_cloud(
         &self,
         cloud_client: &CloudClient,
-        bindle_version: String,
+        version: String,
         app_id: Uuid,
     ) -> Result<Uuid> {
         let mut revisions = cloud_client.list_revisions().await?;
@@ -424,7 +408,7 @@ impl DeployCommand {
             if let Some(revision) = revisions
                 .items
                 .iter()
-                .find(|&x| x.revision_number == bindle_version && x.app_id == app_id)
+                .find(|&x| x.revision_number == version && x.app_id == app_id)
             {
                 return Ok(revision.id);
             }
@@ -438,7 +422,7 @@ impl DeployCommand {
 
         Err(anyhow!(
             "No revision with version {} and app id {}",
-            bindle_version,
+            version,
             app_id
         ))
     }
@@ -474,52 +458,108 @@ impl DeployCommand {
         ))
     }
 
-    async fn create_and_push_bindle(
+    async fn push_oci(
         &self,
+        application: spin_manifest::Application,
         buildinfo: Option<BuildMetadata>,
-        bindle_connection_info: BindleConnectionInfo,
-    ) -> Result<Id> {
-        let temp_dir = tempfile::tempdir()?;
-        let dest_dir = match &self.staging_dir {
-            None => temp_dir.path(),
-            Some(path) => path.as_path(),
+        connection_config: ConnectionConfig,
+    ) -> Result<Option<String>> {
+        let mut client = spin_oci::Client::new(connection_config.insecure, None).await?;
+
+        let cloud_url =
+            Url::parse(connection_config.url.as_str()).context("Unable to parse cloud URL")?;
+        let cloud_host = cloud_url
+            .host_str()
+            .context("Unable to derive host from cloud URL")?;
+        let cloud_registry_host = format!("registry.{cloud_host}");
+
+        let reference = match buildinfo {
+            Some(buildinfo) => {
+                format!(
+                    "{}/{}:{}",
+                    cloud_registry_host,
+                    &sanitize_app_name(&application.info.name),
+                    &sanitize_app_version(
+                        &(application.info.version.to_owned() + "-" + &buildinfo),
+                    )
+                )
+            }
+            None => {
+                format!(
+                    "{}/{}",
+                    cloud_registry_host,
+                    &sanitize_app_name(&application.info.name)
+                )
+            }
         };
 
-        let bindle_id = spin_bindle::prepare_bindle(&self.app()?, buildinfo, dest_dir)
-            .await
-            .map_err(crate::wrap_prepare_bindle_error)?;
+        let oci_ref = Reference::try_from(reference.as_ref())
+            .context(format!("Could not parse reference '{reference}'"))?;
 
-        println!(
-            "Uploading {} version {}...",
-            bindle_id.name(),
-            bindle_id.version()
+        client.insert_token(
+            &oci_ref,
+            RegistryOperation::Push,
+            token_cache::RegistryTokenType::Bearer(token_cache::RegistryToken::Token {
+                token: connection_config.token,
+            }),
         );
 
-        match spin_bindle::push_all(dest_dir, &bindle_id, bindle_connection_info.clone()).await {
-            Err(spin_bindle::PublishError::BindleAlreadyExists(err_msg)) => {
-                if self.redeploy {
-                    Ok(bindle_id.clone())
-                } else {
-                    Err(anyhow!(
-                        "Failed to push bindle to server.\n{}\nTry using the --deploy-existing-bindle flag",
-                        err_msg
-                    ))
-                }
-            }
-            Err(spin_bindle::PublishError::BindleClient(bindle::client::ClientError::Other(e)))
-                if e.to_string().contains("application exceeds") =>
-            {
-                Err(anyhow!(e.trim_start_matches("Unknown error: ").to_owned()))
-            }
-            Err(err) => Err(err).with_context(|| {
-                crate::push_all_failed_msg(dest_dir, bindle_connection_info.base_url())
-            }),
-            Ok(()) => Ok(bindle_id.clone()),
-        }
+        println!(
+            "Uploading {} version {} to Fermyon Cloud...",
+            &oci_ref.repository(),
+            &oci_ref.tag().unwrap_or(&application.info.version)
+        );
+        let digest = client.push(&application, reference).await?;
+
+        Ok(digest)
     }
 }
 
+// SAFE_APP_NAME regex to only allow letters/numbers/underscores/dashes
+lazy_static::lazy_static! {
+    static ref SAFE_APP_NAME: regex::Regex = regex::Regex::new("^[-_\\p{L}\\p{N}]+$").expect("Invalid name regex");
+}
+
+// TODO: logic here inherited from bindle restrictions; it would be friendlier to users
+// to be less stringent and do the necessary sanitization on the backend, rather than
+// presenting this error at deploy time.
+fn check_safe_app_name(name: &str) -> Result<()> {
+    if SAFE_APP_NAME.is_match(name) {
+        Ok(())
+    } else {
+        Err(anyhow!("App name '{}' contains characters that are not allowed. It may contain only letters, numbers, dashes and underscores", name))
+    }
+}
+
+// Sanitize app name to conform to Docker repo name conventions
+// From https://docs.docker.com/engine/reference/commandline/tag/#extended-description:
+// The path consists of slash-separated components. Each component may contain lowercase letters, digits and separators.
+// A separator is defined as a period, one or two underscores, or one or more hyphens. A component may not start or end with a separator.
+fn sanitize_app_name(name: &str) -> String {
+    name.to_ascii_lowercase()
+        .replace(' ', "")
+        .trim_start_matches(|c: char| c == '.' || c == '_' || c == '-')
+        .trim_end_matches(|c: char| c == '.' || c == '_' || c == '-')
+        .to_string()
+}
+
+// Sanitize app version to conform to Docker tag conventions
+// From https://docs.docker.com/engine/reference/commandline/tag
+// A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and hyphens.
+// A tag name may not start with a period or a hyphen and may contain a maximum of 128 characters.
+fn sanitize_app_version(tag: &str) -> String {
+    let mut sanitized = tag
+        .trim()
+        .trim_start_matches(|c: char| c == '.' || c == '-');
+
+    if sanitized.len() > 128 {
+        (sanitized, _) = sanitized.split_at(128);
+    }
+    sanitized.replace(' ', "")
+}
+
 fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
+    check_safe_app_name(&app.info.name)?;
     ensure!(!app.components.is_empty(), "No components in spin.toml!");
     for component in &app.components {
         if let Some(invalid_store) = component
@@ -614,7 +654,7 @@ enum Destination {
 
 async fn wait_for_ready(
     app_base_url: &Url,
-    bindle_version: &str,
+    app_version: &str,
     readiness_timeout_secs: u16,
     destination: Destination,
 ) {
@@ -636,7 +676,7 @@ async fn wait_for_ready(
     print!("Waiting for application to become ready");
     let _ = std::io::stdout().flush();
     loop {
-        match is_ready(&app_info_url, bindle_version).await {
+        match is_ready(&app_info_url, app_version).await {
             Err(err) => {
                 println!("... readiness check failed: {err:?}");
                 return;
@@ -682,10 +722,10 @@ async fn is_ready(app_info_url: &str, expected_version: &str) -> Result<bool> {
         tracing::debug!("App not ready: {}", resp.status());
         return Ok(false);
     }
-    // If the app was previously deployed then it will have an outdated bindle
+    // If the app was previously deployed then it will have an outdated
     // version, in which case the app isn't ready
     if let Ok(app_info) = resp.json::<AppInfo>().await {
-        let active_version = app_info.bindle_version;
+        let active_version = app_info.oci_image_digest;
         if active_version.as_deref() != Some(expected_version) {
             tracing::debug!("Active version {active_version:?} != expected {expected_version:?}");
             return Ok(false);
@@ -864,4 +904,46 @@ pub fn config_file_path(deployment_env_id: Option<&str>) -> Result<PathBuf> {
     let path = root.join(file);
 
     Ok(path)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn accepts_only_valid_app_names() {
+        check_safe_app_name("hello").expect("should have accepted 'hello'");
+        check_safe_app_name("hello-world").expect("should have accepted 'hello-world'");
+        check_safe_app_name("hell0_w0rld").expect("should have accepted 'hell0_w0rld'");
+
+        let err =
+            check_safe_app_name("hello/world").expect_err("should not have accepted 'hello/world'");
+
+        let err =
+            check_safe_app_name("hello world").expect_err("should not have accepted 'hello world'");
+    }
+
+    #[test]
+    fn should_sanitize_app_name() {
+        assert_eq!("hello-world", sanitize_app_name("hello-world"));
+        assert_eq!("hello-world2000", sanitize_app_name("Hello-World2000"));
+        assert_eq!("hello-world", sanitize_app_name(".-_hello-world_-"));
+        assert_eq!("hello-world", sanitize_app_name(" hello -world "));
+    }
+
+    #[test]
+    fn should_sanitize_app_version() {
+        assert_eq!("v0.1.0", sanitize_app_version("v0.1.0"));
+        assert_eq!("_v0.1.0", sanitize_app_version("_v0.1.0"));
+        assert_eq!("v0.1.0_-", sanitize_app_version(".-v0.1.0_-"));
+        assert_eq!("v0.1.0", sanitize_app_version(" v 0.1.0 "));
+        assert_eq!(
+            "v0.1.0+Hello-World",
+            sanitize_app_version(" v 0.1.0+Hello-World ")
+        );
+        assert_eq!(
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            sanitize_app_version("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b")
+        );
+    }
 }
