@@ -23,7 +23,6 @@ const VERSION: &str = concat!(
 
 #[derive(Parser)]
 #[clap(author, version = VERSION, about, long_about = None)]
-#[clap(propagate_version = true)]
 enum CloudCli {
     /// Manage applications deployed to Fermyon Cloud
     #[clap(subcommand)]
