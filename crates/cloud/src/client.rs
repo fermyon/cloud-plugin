@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use cloud_openapi::{
     apis::{
         self,
-        apps_api::{api_apps_get, api_apps_id_delete, api_apps_post},
+        apps_api::{api_apps_get, api_apps_id_delete, api_apps_id_get, api_apps_post},
         auth_tokens_api::api_auth_tokens_refresh_post,
         channels_api::{
             api_channels_get, api_channels_id_delete, api_channels_id_get,
@@ -22,7 +22,7 @@ use cloud_openapi::{
         Error, ResponseContent,
     },
     models::{
-        AppItemPage, ChannelItem, ChannelItemPage, ChannelRevisionSelectionStrategy,
+        AppItem, AppItemPage, ChannelItem, ChannelItemPage, ChannelRevisionSelectionStrategy,
         CreateAppCommand, CreateChannelCommand, CreateDeviceCodeCommand, CreateKeyValuePairCommand,
         CreateSqlDatabaseCommand, CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand,
         DeleteVariablePairCommand, DeviceCodeItem, EnvironmentVariableItem,
@@ -152,6 +152,12 @@ impl Client {
 
     pub async fn remove_app(&self, id: String) -> Result<()> {
         api_apps_id_delete(&self.configuration, &id, None)
+            .await
+            .map_err(format_response_error)
+    }
+
+    pub async fn get_app(&self, id: String) -> Result<AppItem> {
+        api_apps_id_get(&self.configuration, &id, None)
             .await
             .map_err(format_response_error)
     }

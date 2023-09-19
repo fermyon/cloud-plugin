@@ -2,7 +2,7 @@ use crate::commands::{client_and_app_id, create_cloud_client};
 use crate::opts::*;
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
-use cloud_openapi::models::AppItemPage;
+use cloud_openapi::models::{AppItemPage, DomainValidationStatus};
 
 #[derive(Parser, Debug)]
 #[clap(about = "Manage applications deployed to Fermyon Cloud")]
@@ -11,6 +11,8 @@ pub enum AppsCommand {
     List(ListCommand),
     /// Delete an app deployed in Fermyon Cloud
     Delete(DeleteCommand),
+    /// Get Details about a deployed app in Fermyon Cloud
+    Get(GetCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -21,6 +23,14 @@ pub struct ListCommand {
 
 #[derive(Parser, Debug)]
 pub struct DeleteCommand {
+    /// Name of Spin app
+    pub app: String,
+    #[clap(flatten)]
+    common: CommonArgs,
+}
+
+#[derive(Parser, Debug)]
+pub struct GetCommand {
     /// Name of Spin app
     pub app: String,
     #[clap(flatten)]
@@ -67,6 +77,41 @@ impl AppsCommand {
                     .await
                     .with_context(|| format!("Problem deleting app named {}", &cmd.app))?;
                 println!("Deleted app \"{}\" successfully.", &cmd.app);
+            }
+            AppsCommand::Get(cmd) => {
+                let (client, app_id) =
+                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.app).await?;
+                let app = client
+                    .get_app(app_id.to_string())
+                    .await
+                    .with_context(|| format!("Error: could not get details about {}", &cmd.app))?;
+
+                println!("Name: {}", &app.name);
+                if let Some(description) = &app.description {
+                    if !description.is_empty() {
+                        println!("Description: {}", description);
+                    }
+                }
+                match app.domain {
+                    Some(val) => {
+                        match val.validation_status {
+                            DomainValidationStatus::InProgress => {
+                                if let Some(url) = app.channels[0].domain.as_ref() {
+                                    println!("URL: https://{}", url);
+                                    println!("Validation for {} is in progress", val.name)
+                                }
+                            }
+                            DomainValidationStatus::Ready => {
+                                println!("URL: https://{}", val.name);
+                            }
+                        };
+                    }
+                    None => {
+                        if let Some(url) = app.channels[0].domain.as_ref() {
+                            println!("URL: https://{}", url);
+                        }
+                    }
+                };
             }
         }
         Ok(())
