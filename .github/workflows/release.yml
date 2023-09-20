@@ -183,6 +183,8 @@ jobs:
 
       - name: create plugin manifest
         shell: bash
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
         run: bash .plugin-manifests/generate-manifest.sh ${{ env.RELEASE_VERSION }} checksums-${{ env.RELEASE_VERSION }}.txt > cloud.json
 
       - uses: actions/upload-artifact@v3
