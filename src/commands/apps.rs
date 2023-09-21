@@ -11,8 +11,8 @@ pub enum AppsCommand {
     List(ListCommand),
     /// Delete an app deployed in Fermyon Cloud
     Delete(DeleteCommand),
-    /// Get Details about a deployed app in Fermyon Cloud
-    Get(GetCommand),
+    /// Get details about a deployed app in Fermyon Cloud
+    Info(InfoCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -30,7 +30,7 @@ pub struct DeleteCommand {
 }
 
 #[derive(Parser, Debug)]
-pub struct GetCommand {
+pub struct InfoCommand {
     /// Name of Spin app
     pub app: String,
     #[clap(flatten)]
@@ -78,7 +78,7 @@ impl AppsCommand {
                     .with_context(|| format!("Problem deleting app named {}", &cmd.app))?;
                 println!("Deleted app \"{}\" successfully.", &cmd.app);
             }
-            AppsCommand::Get(cmd) => {
+            AppsCommand::Info(cmd) => {
                 let (client, app_id) =
                     client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.app).await?;
                 let app = client
