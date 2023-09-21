@@ -74,48 +74,62 @@ struct CommonArgs {
 impl SqliteCommand {
     pub async fn run(self) -> Result<()> {
         match self {
-            Self::Delete(cmd) => {
-                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                let list = CloudClient::get_databases(&client, None)
-                    .await
-                    .context("Problem fetching databases")?;
-                if !list.iter().any(|d| d.name == cmd.name) {
-                    anyhow::bail!("No database found with name \"{}\"", cmd.name);
-                }
-                // TODO: Fail if apps exist that are currently using a database
-                if cmd.yes || prompt_delete_database(&cmd.name)? {
-                    CloudClient::delete_database(&client, cmd.name.clone())
-                        .await
-                        .with_context(|| format!("Problem deleting database {}", cmd.name))?;
-                    println!("Database \"{}\" deleted", cmd.name);
-                }
-            }
-            Self::Execute(cmd) => {
-                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                let list = CloudClient::get_databases(&client, None)
-                    .await
-                    .context("Problem fetching databases")?;
-                if !list.iter().any(|d| d.name == cmd.name) {
-                    anyhow::bail!("No database found with name \"{}\"", cmd.name);
-                }
-                let statement = if let Some(path) = cmd.statement.strip_prefix('@') {
-                    std::fs::read_to_string(path)
-                        .with_context(|| format!("could not read sql file at '{path}'"))?
-                } else {
-                    cmd.statement
-                };
-                CloudClient::execute_sql(&client, cmd.name, statement)
-                    .await
-                    .context("Problem executing SQL")?;
-            }
-            Self::List(cmd) => {
-                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                let list = CloudClient::get_databases(&client, None)
-                    .await
-                    .context("Problem listing databases")?;
-                print_databases(list);
-            }
+            Self::Delete(cmd) => cmd.run().await,
+            Self::Execute(cmd) => cmd.run().await,
+            Self::List(cmd) => cmd.run().await,
         }
+    }
+}
+
+impl DeleteCommand {
+    pub async fn run(self) -> Result<()> {
+        let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
+        let list = CloudClient::get_databases(&client, None)
+            .await
+            .context("Problem fetching databases")?;
+        if !list.iter().any(|d| d.name == self.name) {
+            anyhow::bail!("No database found with name \"{}\"", self.name);
+        }
+        // TODO: Fail if apps exist that are currently using a database
+        if self.yes || prompt_delete_database(&self.name)? {
+            CloudClient::delete_database(&client, self.name.clone())
+                .await
+                .with_context(|| format!("Problem deleting database {}", self.name))?;
+            println!("Database \"{}\" deleted", self.name);
+        }
+        Ok(())
+    }
+}
+
+impl ExecuteCommand {
+    pub async fn run(self) -> Result<()> {
+        let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
+        let list = CloudClient::get_databases(&client, None)
+            .await
+            .context("Problem fetching databases")?;
+        if !list.iter().any(|d| d.name == self.name) {
+            anyhow::bail!("No database found with name \"{}\"", self.name);
+        }
+        let statement = if let Some(path) = self.statement.strip_prefix('@') {
+            std::fs::read_to_string(path)
+                .with_context(|| format!("could not read sql file at '{path}'"))?
+        } else {
+            self.statement
+        };
+        CloudClient::execute_sql(&client, self.name, statement)
+            .await
+            .context("Problem executing SQL")?;
+        Ok(())
+    }
+}
+
+impl ListCommand {
+    pub async fn run(self) -> Result<()> {
+        let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
+        let list = CloudClient::get_databases(&client, None)
+            .await
+            .context("Problem listing databases")?;
+        print_databases(list);
         Ok(())
     }
 }

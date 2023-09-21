@@ -52,68 +52,82 @@ struct CommonArgs {
 impl AppsCommand {
     pub async fn run(self) -> Result<()> {
         match self {
-            AppsCommand::List(cmd) => {
-                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
-                let mut app_list_page = client.list_apps(DEFAULT_APPLIST_PAGE_SIZE, None).await?;
-                if app_list_page.total_items <= 0 {
-                    eprintln!("No applications found");
-                } else {
-                    print_app_list(&app_list_page);
-                    let mut page_index = 1;
-                    while !app_list_page.is_last_page {
-                        app_list_page = client
-                            .list_apps(DEFAULT_APPLIST_PAGE_SIZE, Some(page_index))
-                            .await?;
-                        print_app_list(&app_list_page);
-                        page_index += 1;
-                    }
-                }
-            }
-            AppsCommand::Delete(cmd) => {
-                let (client, app_id) =
-                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.app).await?;
-                client
-                    .remove_app(app_id.to_string())
-                    .await
-                    .with_context(|| format!("Problem deleting app named {}", &cmd.app))?;
-                println!("Deleted app \"{}\" successfully.", &cmd.app);
-            }
-            AppsCommand::Info(cmd) => {
-                let (client, app_id) =
-                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.app).await?;
-                let app = client
-                    .get_app(app_id.to_string())
-                    .await
-                    .with_context(|| format!("Error: could not get details about {}", &cmd.app))?;
+            AppsCommand::List(cmd) => cmd.run().await,
+            AppsCommand::Delete(cmd) => cmd.run().await,
+            AppsCommand::Info(cmd) => cmd.run().await,
+        }
+    }
+}
 
-                println!("Name: {}", &app.name);
-                if let Some(description) = &app.description {
-                    if !description.is_empty() {
-                        println!("Description: {}", description);
-                    }
-                }
-                match app.domain {
-                    Some(val) => {
-                        match val.validation_status {
-                            DomainValidationStatus::InProgress => {
-                                if let Some(url) = app.channels[0].domain.as_ref() {
-                                    println!("URL: https://{}", url);
-                                    println!("Validation for {} is in progress", val.name)
-                                }
-                            }
-                            DomainValidationStatus::Ready => {
-                                println!("URL: https://{}", val.name);
-                            }
-                        };
-                    }
-                    None => {
+impl ListCommand {
+    pub async fn run(self) -> Result<()> {
+        let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
+        let mut app_list_page = client.list_apps(DEFAULT_APPLIST_PAGE_SIZE, None).await?;
+        if app_list_page.total_items <= 0 {
+            eprintln!("No applications found");
+        } else {
+            print_app_list(&app_list_page);
+            let mut page_index = 1;
+            while !app_list_page.is_last_page {
+                app_list_page = client
+                    .list_apps(DEFAULT_APPLIST_PAGE_SIZE, Some(page_index))
+                    .await?;
+                print_app_list(&app_list_page);
+                page_index += 1;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl DeleteCommand {
+    pub async fn run(self) -> Result<()> {
+        let (client, app_id) =
+            client_and_app_id(self.common.deployment_env_id.as_deref(), &self.app).await?;
+        client
+            .remove_app(app_id.to_string())
+            .await
+            .with_context(|| format!("Problem deleting app named {}", &self.app))?;
+        println!("Deleted app \"{}\" successfully.", &self.app);
+        Ok(())
+    }
+}
+
+impl InfoCommand {
+    pub async fn run(self) -> Result<()> {
+        let (client, app_id) =
+            client_and_app_id(self.common.deployment_env_id.as_deref(), &self.app).await?;
+        let app = client
+            .get_app(app_id.to_string())
+            .await
+            .with_context(|| format!("Error: could not get details about {}", &self.app))?;
+
+        println!("Name: {}", &app.name);
+        if let Some(description) = &app.description {
+            if !description.is_empty() {
+                println!("Description: {}", description);
+            }
+        }
+        match app.domain {
+            Some(val) => {
+                match val.validation_status {
+                    DomainValidationStatus::InProgress => {
                         if let Some(url) = app.channels[0].domain.as_ref() {
                             println!("URL: https://{}", url);
+                            println!("Validation for {} is in progress", val.name)
                         }
+                    }
+                    DomainValidationStatus::Ready => {
+                        println!("URL: https://{}", val.name);
                     }
                 };
             }
-        }
+            None => {
+                if let Some(url) = app.channels[0].domain.as_ref() {
+                    println!("URL: https://{}", url);
+                }
+            }
+        };
         Ok(())
     }
 }
