@@ -2,7 +2,7 @@ use crate::commands::{client_and_app_id, create_cloud_client};
 use crate::opts::*;
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
-use cloud_openapi::models::{AppItemPage, DomainValidationStatus};
+use cloud_openapi::models::{AppItem, AppItemPage, DomainValidationStatus};
 
 #[derive(Parser, Debug)]
 #[clap(about = "Manage applications deployed to Fermyon Cloud")]
@@ -102,33 +102,35 @@ impl InfoCommand {
             .await
             .with_context(|| format!("Error: could not get details about {}", &self.app))?;
 
+        let (current_domain, in_progress_domain) = domains_current_and_in_progress(&app);
+
         println!("Name: {}", &app.name);
-        if let Some(description) = &app.description {
-            if !description.is_empty() {
-                println!("Description: {}", description);
-            }
-        }
-        match app.domain {
-            Some(val) => {
-                match val.validation_status {
-                    DomainValidationStatus::InProgress => {
-                        if let Some(url) = app.channels[0].domain.as_ref() {
-                            println!("URL: https://{}", url);
-                            println!("Validation for {} is in progress", val.name)
-                        }
-                    }
-                    DomainValidationStatus::Ready => {
-                        println!("URL: https://{}", val.name);
-                    }
-                };
-            }
-            None => {
-                if let Some(url) = app.channels[0].domain.as_ref() {
-                    println!("URL: https://{}", url);
-                }
-            }
+        print_if_present("Description", app.description.as_ref());
+        print_if_present("URL: https://", current_domain);
+        if let Some(domain) = in_progress_domain {
+            println!("Validation for {} is in progress", domain);
         };
+
         Ok(())
+    }
+}
+
+fn domains_current_and_in_progress(app: &AppItem) -> (Option<&String>, Option<&String>) {
+    let auto_domain = app.channels[0].domain.as_ref();
+    match &app.domain {
+        Some(val) => match val.validation_status {
+            DomainValidationStatus::InProgress => (auto_domain, Some(&val.name)),
+            DomainValidationStatus::Ready => (Some(&val.name), None),
+        },
+        None => (auto_domain, None),
+    }
+}
+
+fn print_if_present(prefix: &str, value: Option<&String>) {
+    if let Some(val) = value {
+        if !val.is_empty() {
+            println!("{prefix}{val}");
+        }
     }
 }
 
