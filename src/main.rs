@@ -1,5 +1,6 @@
 mod commands;
 mod opts;
+mod spin;
 
 use anyhow::{Error, Result};
 use clap::{FromArgMatches, Parser};
