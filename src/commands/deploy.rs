@@ -179,35 +179,14 @@ impl DeployCommand {
         // Create or update app
         let channel_id = match get_app_id_cloud(&client, &name).await? {
             Some(app_id) => {
-                // TODO: move to separate fn
-                for label in sqlite_labels_used(&cfg) {
-                    let app_label = AppLabel {
-                        app_id,
-                        label,
-                        app_name: name.clone(),
-                    };
-                    if let ExistingAppDatabaseSelection::NotYetLinked(selection) =
-                        get_database_selection_for_existing_app(&name, &client, &app_label).await?
-                    {
-                        match selection {
-                            // User canceled terminal interaction
-                            DatabaseSelection::Cancelled => return Ok(()),
-                            DatabaseSelection::New(db) => {
-                                client.create_database(db, Some(app_label)).await?;
-                            }
-                            DatabaseSelection::Existing(db) => {
-                                let link = DatabaseLink::new(app_label, db);
-                                CloudClient::create_link(&client, &link)
-                                    .await
-                                    .with_context(|| {
-                                        format!(
-                                            r#"Could not link database "{}" to app "{}""#,
-                                            link.database, link.app_label.app_name,
-                                        )
-                                    })?;
-                            }
-                        }
-                    }
+                let labels = sqlite_labels_used(&cfg);
+                if !labels.is_empty()
+                    && create_and_link_databases_for_existing_app(&client, &name, app_id, labels)
+                        .await?
+                        .is_none()
+                {
+                    // User canceled terminal interaction
+                    return Ok(());
                 }
                 CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
                 let existing_channel_id = self
@@ -246,43 +225,18 @@ impl DeployCommand {
             }
             None => {
                 let labels = sqlite_labels_used(&cfg);
-                let mut databases_to_link = Vec::new();
-                for label in labels {
-                    let db =
-                        match get_database_selection_for_new_app(&name, &client, &label).await? {
-                            DatabaseSelection::Existing(db) => db,
-                            DatabaseSelection::New(db) => {
-                                client.create_database(db.clone(), None).await?;
-                                db
-                            }
-                            // User canceled terminal interaction
-                            DatabaseSelection::Cancelled => return Ok(()),
-                        };
-                    databases_to_link.push((db, label));
-                }
+                let databases_to_link =
+                    match create_databases_for_new_app(&client, &name, labels).await? {
+                        Some(dbs) => dbs,
+                        None => return Ok(()), // User canceled terminal interaction
+                    };
 
                 let app_id = CloudClient::add_app(&client, &name, &name)
                     .await
                     .context("Unable to create app")?;
 
-                for (database_to_link, label) in databases_to_link {
-                    let link = DatabaseLink::new(
-                        AppLabel {
-                            label,
-                            app_id,
-                            app_name: name.clone(),
-                        },
-                        database_to_link,
-                    );
-                    CloudClient::create_link(&client, &link)
-                        .await
-                        .with_context(|| {
-                            format!(
-                                r#"Failed to link database "{}" to app "{}""#,
-                                link.database, link.app_label.app_name
-                            )
-                        })?;
-                }
+                // Now that the app has been created, we can link databases to it.
+                link_databases(&client, name, app_id, databases_to_link).await?;
 
                 CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
 
@@ -767,6 +721,98 @@ fn sqlite_labels_used(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> Vec<St
         .filter_map(|c| c.wasm.sqlite_databases)
         .flatten()
         .collect()
+}
+
+// Loops through an app's manifest and creates databases.
+// Returns a list of database and label pairs that should be
+// linked to the app once it is created.
+// Returns None if the user canceled terminal interaction
+async fn create_databases_for_new_app(
+    client: &CloudClient,
+    name: &str,
+    labels: Vec<String>,
+) -> anyhow::Result<Option<Vec<(String, String)>>> {
+    let mut databases_to_link = Vec::new();
+    for label in labels {
+        let db = match get_database_selection_for_new_app(name, client, &label).await? {
+            DatabaseSelection::Existing(db) => db,
+            DatabaseSelection::New(db) => {
+                client.create_database(db.clone(), None).await?;
+                db
+            }
+            // User canceled terminal interaction
+            DatabaseSelection::Cancelled => return Ok(None),
+        };
+        databases_to_link.push((db, label));
+    }
+    Ok(Some(databases_to_link))
+}
+
+// Loops through an updated app's manifest and creates and links any newly referenced databases.
+// Returns None if the user canceled terminal interaction
+async fn create_and_link_databases_for_existing_app(
+    client: &CloudClient,
+    name: &str,
+    app_id: Uuid,
+    labels: Vec<String>,
+) -> anyhow::Result<Option<()>> {
+    for label in labels {
+        let app_label = AppLabel {
+            app_id,
+            label,
+            app_name: name.to_string(),
+        };
+        if let ExistingAppDatabaseSelection::NotYetLinked(selection) =
+            get_database_selection_for_existing_app(name, client, &app_label).await?
+        {
+            match selection {
+                // User canceled terminal interaction
+                DatabaseSelection::Cancelled => return Ok(None),
+                DatabaseSelection::New(db) => {
+                    client.create_database(db, Some(app_label)).await?;
+                }
+                DatabaseSelection::Existing(db) => {
+                    let link = DatabaseLink::new(app_label, db);
+                    CloudClient::create_link(client, &link)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                r#"Could not link database "{}" to app "{}""#,
+                                link.database, link.app_label.app_name,
+                            )
+                        })?;
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+async fn link_databases(
+    client: &CloudClient,
+    app_name: String,
+    app_id: Uuid,
+    database_labels: Vec<(String, String)>,
+) -> anyhow::Result<()> {
+    for (database, label) in database_labels {
+        let link = DatabaseLink::new(
+            AppLabel {
+                label,
+                app_id,
+                app_name: app_name.clone(),
+            },
+            database,
+        );
+        CloudClient::create_link(client, &link)
+            .await
+            .with_context(|| {
+                format!(
+                    r#"Failed to link database "{}" to app "{}""#,
+                    link.database, link.app_label.app_name
+                )
+            })?;
+    }
+    Ok(())
 }
 
 fn random_buildinfo() -> BuildMetadata {
