@@ -12,7 +12,7 @@ fi
 SPIN_COMPAT_STRING=$(cat .plugin-manifests/plugin-spin-compat.txt )
 VERSION=$1
 PLUGIN_BINARY_VERSION_STRING=$1
-
+REPO_OWNER=${REPO_OWNER:-fermyon}
 
 # If canary release tag with epoch at the end as it is monotonic
 if [[ $VERSION == "canary" ]]; then
@@ -34,7 +34,7 @@ cat <<EOF
 {
   "name": "cloud",
   "description": "Commands for publishing applications to the Fermyon Cloud.",
-  "homepage": "https://github.com/fermyon/cloud-plugin",
+  "homepage": "https://github.com/${REPO_OWNER}/cloud-plugin",
   "version": "${VERSION//v}",
   "spinCompatibility": "${SPIN_COMPAT_STRING}",
   "license": "Apache-2.0",
@@ -42,31 +42,31 @@ cat <<EOF
     {
       "os": "linux",
       "arch": "amd64",
-      "url": "https://github.com/fermyon/cloud-plugin/releases/download/${PLUGIN_BINARY_VERSION_STRING}/cloud-${PLUGIN_BINARY_VERSION_STRING}-linux-amd64.tar.gz",
+      "url": "https://github.com/${REPO_OWNER}/cloud-plugin/releases/download/${PLUGIN_BINARY_VERSION_STRING}/cloud-${PLUGIN_BINARY_VERSION_STRING}-linux-amd64.tar.gz",
       "sha256": "${LINUX_AMD}"
     },
     {
       "os": "linux",
       "arch": "aarch64",
-      "url": "https://github.com/fermyon/cloud-plugin/releases/download/${PLUGIN_BINARY_VERSION_STRING}/cloud-${PLUGIN_BINARY_VERSION_STRING}-linux-aarch64.tar.gz",
+      "url": "https://github.com/${REPO_OWNER}/cloud-plugin/releases/download/${PLUGIN_BINARY_VERSION_STRING}/cloud-${PLUGIN_BINARY_VERSION_STRING}-linux-aarch64.tar.gz",
       "sha256": "${LINUX_ARM}"
     },
     {
       "os": "macos",
       "arch": "aarch64",
-      "url": "https://github.com/fermyon/cloud-plugin/releases/download/${PLUGIN_BINARY_VERSION_STRING}/cloud-${PLUGIN_BINARY_VERSION_STRING}-macos-aarch64.tar.gz",
+      "url": "https://github.com/${REPO_OWNER}/cloud-plugin/releases/download/${PLUGIN_BINARY_VERSION_STRING}/cloud-${PLUGIN_BINARY_VERSION_STRING}-macos-aarch64.tar.gz",
       "sha256": "${MAC_ARM}"
     },
     {
       "os": "macos",
       "arch": "amd64",
-      "url": "https://github.com/fermyon/cloud-plugin/releases/download/${PLUGIN_BINARY_VERSION_STRING}/cloud-${PLUGIN_BINARY_VERSION_STRING}-macos-amd64.tar.gz",
+      "url": "https://github.com/${REPO_OWNER}/cloud-plugin/releases/download/${PLUGIN_BINARY_VERSION_STRING}/cloud-${PLUGIN_BINARY_VERSION_STRING}-macos-amd64.tar.gz",
       "sha256": "${MAC_AMD}"
     },
     {
       "os": "windows",
       "arch": "amd64",
-      "url": "https://github.com/fermyon/cloud-plugin/releases/download/${PLUGIN_BINARY_VERSION_STRING}/cloud-${PLUGIN_BINARY_VERSION_STRING}-windows-amd64.tar.gz",
+      "url": "https://github.com/${REPO_OWNER}/cloud-plugin/releases/download/${PLUGIN_BINARY_VERSION_STRING}/cloud-${PLUGIN_BINARY_VERSION_STRING}-windows-amd64.tar.gz",
       "sha256": "${WINDOWS_AMD}"
     }
   ]

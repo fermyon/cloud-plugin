@@ -5,7 +5,7 @@ authors = { workspace = true }
 edition = { workspace = true }
 
 [workspace.package]
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Fermyon Engineering <engineering@fermyon.com>"]
 edition = "2021"
 
@@ -13,9 +13,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-bindle = { git = "https://github.com/fermyon/bindle", tag = "v0.8.2", default-features = false, features = [
-  "client",
-] }
 chrono = "0.4"
 clap = { version = "3.2.24", features = ["derive", "env"] }
 cloud = { path = "crates/cloud" }
@@ -23,21 +20,25 @@ cloud-openapi = { workspace = true }
 comfy-table = "7"
 dirs = "5.0"
 dialoguer = "0.10"
+lazy_static = "1.4.0"
+oci-distribution = { git = "https://github.com/fermyon/oci-distribution", rev = "05022618d78feef9b99f20b5da8fd6def6bb80d2" }
 tokio = { version = "1.23", features = ["full"] }
 tracing = { workspace = true }
 rand = "0.8"
+regex = "1.5.4"
 reqwest = { version = "0.11", features = ["stream"] }
 rpassword = "7.0"
 semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.82"
 sha2 = "0.10.2"
-terminal = { git = "https://github.com/fermyon/spin", rev = "38e162b493316e744d4974675065dd9de20b3505" }
-spin-bindle = { git = "https://github.com/fermyon/spin", rev = "38e162b493316e744d4974675065dd9de20b3505" }
-spin-common = { git = "https://github.com/fermyon/spin", rev = "38e162b493316e744d4974675065dd9de20b3505" }
-spin-loader = { git = "https://github.com/fermyon/spin", rev = "38e162b493316e744d4974675065dd9de20b3505" }
-spin-manifest = { git = "https://github.com/fermyon/spin", rev = "38e162b493316e744d4974675065dd9de20b3505" }
-spin-http = { git = "https://github.com/fermyon/spin", rev = "38e162b493316e744d4974675065dd9de20b3505" }
+spin-common = { git = "https://github.com/fermyon/spin", tag = "v1.5.0" }
+spin-loader = { git = "https://github.com/fermyon/spin", tag = "v1.5.0" }
+spin-manifest = { git = "https://github.com/fermyon/spin", tag = "v1.5.0" }
+spin-http = { git = "https://github.com/fermyon/spin", tag = "v1.5.0" }
+spin-oci = { git = "https://github.com/fermyon/spin", tag = "v1.5.0" }
+spin-trigger-http = { git = "https://github.com/fermyon/spin", tag = "v1.5.0" }
+terminal = { git = "https://github.com/fermyon/spin", tag = "v1.5.0" }
 tempfile = "3.3.0"
 url = "2.3"
 uuid = { version = "1.3", features = ["v4"] }
@@ -58,3 +59,8 @@ vergen = { version = "^8.2.1", default-features = false, features = [
   "gitcl",
   "cargo",
 ] }
+
+[patch.crates-io]
+# Using fork to bump nested dep sqlite3-parser to 0.9.0 for Windows build fix
+# Pending related upstream PR https://github.com/libsql/libsql-client-rs/pull/32
+libsql-client = { git = "https://github.com/vdice/libsql-client-rs", branch = "chore/bump-deps"}
