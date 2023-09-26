@@ -4,8 +4,10 @@ use anyhow::{anyhow, bail, ensure, Context, Result};
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::client::{Client as CloudClient, ConnectionConfig};
-use cloud::mocks::{self, AppLabel, Database as MockDatabase, DatabaseLink};
-use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
+use cloud_openapi::models::{
+    ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy, Database,
+    ResourceLabel,
+};
 use oci_distribution::{token_cache, Reference, RegistryOperation};
 use rand::Rng;
 use semver::BuildMetadata;
@@ -41,6 +43,8 @@ use crate::{
     opts::*,
     parse_buildinfo,
 };
+
+use super::sqlite::database_has_link;
 
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
@@ -624,13 +628,16 @@ enum ExistingAppDatabaseSelection {
 async fn get_database_selection_for_existing_app(
     name: &str,
     client: &CloudClient,
-    app_label: &AppLabel,
+    resource_label: &ResourceLabel,
 ) -> Result<ExistingAppDatabaseSelection> {
-    let databases = client.get_databases().await?;
-    if databases.iter().any(|d| d.has_link(app_label)) {
+    let databases = client.get_databases(None).await?;
+    if databases
+        .iter()
+        .any(|d| database_has_link(d, resource_label))
+    {
         return Ok(ExistingAppDatabaseSelection::AlreadyLinked);
     }
-    let selection = prompt_database_selection(client, name, &app_label.label, databases)?;
+    let selection = prompt_database_selection(client, name, &resource_label.label, databases)?;
     Ok(ExistingAppDatabaseSelection::NotYetLinked(selection))
 }
 
@@ -639,7 +646,7 @@ async fn get_database_selection_for_new_app(
     client: &CloudClient,
     label: &str,
 ) -> Result<DatabaseSelection> {
-    let databases = client.get_databases().await?;
+    let databases = client.get_databases(None).await?;
     prompt_database_selection(client, name, label, databases)
 }
 
@@ -647,7 +654,7 @@ fn prompt_database_selection(
     client: &CloudClient,
     name: &str,
     label: &str,
-    databases: Vec<mocks::Database>,
+    databases: Vec<Database>,
 ) -> Result<DatabaseSelection> {
     let prompt = format!(
         r#"App "{name}" accesses a database labeled "{label}"
@@ -752,34 +759,30 @@ async fn create_databases_for_new_app(
 // Returns None if the user canceled terminal interaction
 async fn create_and_link_databases_for_existing_app(
     client: &CloudClient,
-    name: &str,
+    app_name: &str,
     app_id: Uuid,
     labels: Vec<String>,
 ) -> anyhow::Result<Option<()>> {
     for label in labels {
-        let app_label = AppLabel {
+        let resource_label = ResourceLabel {
             app_id,
             label,
-            app_name: name.to_string(),
+            app_name: Some(Some(app_name.to_string())),
         };
         if let ExistingAppDatabaseSelection::NotYetLinked(selection) =
-            get_database_selection_for_existing_app(name, client, &app_label).await?
+            get_database_selection_for_existing_app(app_name, client, &resource_label).await?
         {
             match selection {
                 // User canceled terminal interaction
                 DatabaseSelection::Cancelled => return Ok(None),
                 DatabaseSelection::New(db) => {
-                    client.create_database(db, Some(app_label)).await?;
+                    client.create_database(db, Some(resource_label)).await?;
                 }
                 DatabaseSelection::Existing(db) => {
-                    let link = DatabaseLink::new(app_label, db);
-                    CloudClient::create_link(client, &link)
+                    CloudClient::create_database_link(client, &db, resource_label)
                         .await
                         .with_context(|| {
-                            format!(
-                                r#"Could not link database "{}" to app "{}""#,
-                                link.database, link.app_label.app_name,
-                            )
+                            format!(r#"Could not link database "{}" to app "{}""#, db, app_name,)
                         })?;
                 }
             }
@@ -795,20 +798,17 @@ async fn link_databases(
     database_labels: Vec<(String, String)>,
 ) -> anyhow::Result<()> {
     for (database, label) in database_labels {
-        let link = DatabaseLink::new(
-            AppLabel {
-                label,
-                app_id,
-                app_name: app_name.clone(),
-            },
-            database,
-        );
-        CloudClient::create_link(client, &link)
+        let resource_label = ResourceLabel {
+            label,
+            app_id,
+            app_name: Some(Some(app_name.clone())),
+        };
+        CloudClient::create_database_link(client, &database, resource_label)
             .await
             .with_context(|| {
                 format!(
                     r#"Failed to link database "{}" to app "{}""#,
-                    link.database, link.app_label.app_name
+                    database, app_name
                 )
             })?;
     }

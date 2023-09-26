@@ -1,11 +1,10 @@
-use crate::commands::create_cloud_client;
-use crate::opts::*;
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
-use cloud::{
-    client::Client as CloudClient,
-    mocks::{AppLabel, DatabaseLink},
-};
+use cloud::client::Client as CloudClient;
+use cloud_openapi::models::{Database, ResourceLabel};
+
+use crate::commands::{client_and_app_id, sqlite::find_database_link};
+use crate::opts::*;
 
 /// Manage how apps and resources are linked together
 #[derive(Parser, Debug)]
@@ -51,51 +50,78 @@ impl LinkCommand {
 
 impl SqliteLinkCommand {
     async fn link(self) -> Result<()> {
-        // TODO: update go back to this:
-        // let (client, app_id) = client_and_app_id(self.common.deployment_env_id.as_deref(), &self.app).await?;
-        let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
-        let app_id = uuid::Uuid::new_v4();
-        let database = CloudClient::get_database(&client, &self.database)
+        let (client, app_id) =
+            client_and_app_id(self.common.deployment_env_id.as_deref(), &self.app).await?;
+        let database = CloudClient::get_databases(&client, None)
             .await
-            .context("could not fetch database")?;
+            .context("could not fetch databases")?
+            .into_iter()
+            .find(|d| d.name == self.database);
         if database.is_none() {
             anyhow::bail!(r#"Database "{}" does not exist"#, self.database)
         }
 
-        let links_for_app = CloudClient::list_links(&client, Some(app_id))
+        let databases_for_app = CloudClient::get_databases(&client, Some(app_id))
             .await
             .context("Problem listing links")?;
-        let existing_link_for_database = links_for_app.iter().find(|l| l.database == self.database);
-        let existing_link_with_label = links_for_app.iter().find(|l| l.has_label(&self.label));
-        match (existing_link_for_database, existing_link_with_label) {
+        let (this_db, other_dbs): (Vec<&Database>, Vec<&Database>) = databases_for_app
+            .iter()
+            .partition(|d| d.name == self.database);
+        let existing_link_for_database = this_db
+            .iter()
+            .find_map(|d| find_database_link(d, &self.label));
+        let existing_link_for_other_database = other_dbs
+            .iter()
+            .find_map(|d| find_database_link(d, &self.label));
+        match (existing_link_for_database, existing_link_for_other_database) {
             (Some(link), _) => {
-                // TODO: is this so bad? Why not allow linking an app to a database through multiple labels?
                 anyhow::bail!(
-                    r#"Database "{}" is already linked to app "{}" with label "{}""#,
-                    link.database,
-                    link.app_label.app_name,
-                    link.app_label.label,
+                    r#"A Database is already linked to app "{}" with the label "{}""#,
+                    link.app_name(),
+                    link.resource_label.label,
                 );
             }
             (_, Some(link)) => {
                 anyhow::bail!(
-                    r#"A Database is already linked to app "{}" with the label "{}""#,
-                    link.app_label.app_name,
-                    link.app_label.label,
+                    r#"Database "{}" is already linked to app "{}" with label "{}""#,
+                    link.resource,
+                    link.app_name(),
+                    link.resource_label.label,
                 );
             }
             (None, None) => {
-                let link = DatabaseLink::new(
-                    AppLabel {
-                        app_id,
-                        label: self.label,
-                        app_name: self.app,
-                    },
-                    self.database,
-                );
-                CloudClient::create_link(&client, &link).await?;
+                let resource_label = ResourceLabel {
+                    app_id,
+                    label: self.label,
+                    app_name: Some(Some(self.app)),
+                };
+                CloudClient::create_database_link(&client, &self.database, resource_label).await?;
             }
         }
         Ok(())
+    }
+}
+
+/// A Link structure to ease grouping a resource with it's app and label
+#[derive(Clone, PartialEq)]
+pub struct Link {
+    pub resource_label: ResourceLabel,
+    pub resource: String,
+}
+
+impl Link {
+    pub fn new(resource_label: ResourceLabel, resource: String) -> Self {
+        Self {
+            resource_label,
+            resource,
+        }
+    }
+
+    pub fn app_name(&self) -> String {
+        self.resource_label
+            .app_name
+            .clone()
+            .expect("no app name field in ResourceLabel")
+            .expect("no app name set in ResourceLabel")
     }
 }

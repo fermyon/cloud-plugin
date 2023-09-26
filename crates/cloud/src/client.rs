@@ -13,7 +13,9 @@ use cloud_openapi::{
         key_value_pairs_api::api_key_value_pairs_post,
         revisions_api::{api_revisions_get, api_revisions_post},
         sql_databases_api::{
-            api_sql_databases_create_post, api_sql_databases_delete, api_sql_databases_execute_post,
+            api_sql_databases_create_post, api_sql_databases_delete,
+            api_sql_databases_execute_post, api_sql_databases_get,
+            api_sql_databases_links_database_delete, api_sql_databases_links_database_post,
         },
         variable_pairs_api::{
             api_variable_pairs_delete, api_variable_pairs_get, api_variable_pairs_post,
@@ -23,18 +25,16 @@ use cloud_openapi::{
     models::{
         AppItem, AppItemPage, ChannelItem, ChannelItemPage, ChannelRevisionSelectionStrategy,
         CreateAppCommand, CreateChannelCommand, CreateDeviceCodeCommand, CreateKeyValuePairCommand,
-        CreateSqlDatabaseCommand, CreateVariablePairCommand, DeleteSqlDatabaseCommand,
+        CreateSqlDatabaseCommand, CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand,
         DeleteVariablePairCommand, DeviceCodeItem, EnvironmentVariableItem,
-        ExecuteSqlStatementCommand, GetChannelLogsVm, GetVariablesQuery, RefreshTokenCommand,
-        RegisterRevisionCommand, RevisionItemPage, TokenInfo,
+        ExecuteSqlStatementCommand, GetChannelLogsVm, GetSqlDatabasesQuery, GetVariablesQuery,
+        RefreshTokenCommand, RegisterRevisionCommand, ResourceLabel, RevisionItemPage, TokenInfo,
     },
 };
 use reqwest::header;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-
-use crate::mocks::AppLabel;
 
 const JSON_MIME_TYPE: &str = "application/json";
 
@@ -400,13 +400,13 @@ impl Client {
     pub async fn create_database(
         &self,
         name: String,
-        link: Option<AppLabel>,
+        resource_label: Option<ResourceLabel>,
     ) -> anyhow::Result<()> {
         api_sql_databases_create_post(
             &self.configuration,
             CreateSqlDatabaseCommand {
                 name,
-                app_id: Some(link.map(|l| l.app_id)),
+                app_id: Some(resource_label.map(|l| l.app_id)),
             },
             None,
         )
@@ -435,37 +435,40 @@ impl Client {
             .map_err(format_response_error)
     }
 
-    pub async fn get_databases(&self) -> anyhow::Result<Vec<crate::mocks::Database>> {
-        Ok(crate::mocks::mock_databases_list())
-    }
-
-    pub async fn get_database(&self, name: &str) -> anyhow::Result<Option<crate::mocks::Database>> {
-        Ok(Some(crate::mocks::Database {
-            name: name.to_owned(),
-            links: vec![],
-        }))
-    }
-
-    pub async fn list_links(
-        &self,
-        app_id: Option<Uuid>,
-    ) -> anyhow::Result<Vec<crate::mocks::DatabaseLink>> {
-        let _ = app_id;
-        Ok(crate::mocks::mock_links_list())
+    pub async fn get_databases(&self, app_id: Option<Uuid>) -> anyhow::Result<Vec<Database>> {
+        // Ok(crate::mocks::mock_databases_list())
+        let list = api_sql_databases_get(
+            &self.configuration,
+            GetSqlDatabasesQuery {
+                app_id: Some(app_id),
+            },
+            None,
+        )
+        .await
+        .map_err(format_response_error)?;
+        Ok(list.databases)
     }
 
     /// Do we want to future proof this? Right now this assumes all links are to databases
     /// but that might not be true in the future.
-    pub async fn create_link(&self, link: &crate::mocks::DatabaseLink) -> anyhow::Result<()> {
-        let _ = link;
-        println!("entered create_link");
-        Ok(())
+    pub async fn create_database_link(
+        &self,
+        database: &str,
+        resource_label: ResourceLabel,
+    ) -> anyhow::Result<()> {
+        api_sql_databases_links_database_post(&self.configuration, database, resource_label, None)
+            .await
+            .map_err(format_response_error)
     }
 
-    pub async fn remove_link(&self, link: &crate::mocks::DatabaseLink) -> anyhow::Result<()> {
-        let _ = link;
-        println!("entered remove_link");
-        Ok(())
+    pub async fn remove_database_link(
+        &self,
+        database: &str,
+        resource_label: ResourceLabel,
+    ) -> anyhow::Result<()> {
+        api_sql_databases_links_database_delete(&self.configuration, database, resource_label, None)
+            .await
+            .map_err(format_response_error)
     }
 }
 
