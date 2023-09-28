@@ -13,9 +13,9 @@ use cloud_openapi::{
         key_value_pairs_api::api_key_value_pairs_post,
         revisions_api::{api_revisions_get, api_revisions_post},
         sql_databases_api::{
-            api_sql_databases_create_post, api_sql_databases_delete,
+            api_sql_databases_create_post, api_sql_databases_database_links_delete,
+            api_sql_databases_database_links_post, api_sql_databases_delete,
             api_sql_databases_execute_post, api_sql_databases_get,
-            api_sql_databases_links_database_delete, api_sql_databases_links_database_post,
         },
         variable_pairs_api::{
             api_variable_pairs_delete, api_variable_pairs_get, api_variable_pairs_post,
@@ -402,11 +402,16 @@ impl Client {
         name: String,
         resource_label: Option<ResourceLabel>,
     ) -> anyhow::Result<()> {
+        let (app_id, label) = match resource_label {
+            Some(rl) => (Some(Some(rl.app_id)), Some(Some(rl.label))),
+            None => (None, None),
+        };
         api_sql_databases_create_post(
             &self.configuration,
             CreateSqlDatabaseCommand {
                 name,
-                app_id: Some(resource_label.map(|l| l.app_id)),
+                app_id,
+                label,
             },
             None,
         )
@@ -436,7 +441,6 @@ impl Client {
     }
 
     pub async fn get_databases(&self, app_id: Option<Uuid>) -> anyhow::Result<Vec<Database>> {
-        // Ok(crate::mocks::mock_databases_list())
         let list = api_sql_databases_get(
             &self.configuration,
             GetSqlDatabasesQuery {
@@ -456,7 +460,7 @@ impl Client {
         database: &str,
         resource_label: ResourceLabel,
     ) -> anyhow::Result<()> {
-        api_sql_databases_links_database_post(&self.configuration, database, resource_label, None)
+        api_sql_databases_database_links_post(&self.configuration, database, resource_label, None)
             .await
             .map_err(format_response_error)
     }
@@ -466,7 +470,7 @@ impl Client {
         database: &str,
         resource_label: ResourceLabel,
     ) -> anyhow::Result<()> {
-        api_sql_databases_links_database_delete(&self.configuration, database, resource_label, None)
+        api_sql_databases_database_links_delete(&self.configuration, database, resource_label, None)
             .await
             .map_err(format_response_error)
     }
