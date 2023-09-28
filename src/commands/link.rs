@@ -117,11 +117,10 @@ impl Link {
         }
     }
 
-    pub fn app_name(&self) -> String {
-        self.resource_label
-            .app_name
-            .clone()
-            .expect("no app name field in ResourceLabel")
-            .expect("no app name set in ResourceLabel")
+    pub fn app_name(&self) -> &str {
+        match self.resource_label.app_name.as_ref() {
+            Some(Some(a)) => a.as_str(),
+            _ => "UNKNOWN",
+        }
     }
 }

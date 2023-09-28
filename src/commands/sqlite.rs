@@ -175,6 +175,7 @@ impl ListCommand {
     }
 }
 
+/// Print databases optionally filtering to a specifically supplied app and/or database
 fn print_databases(mut databases: Vec<Database>, app: Option<String>, database: Option<String>) {
     if databases.is_empty() {
         println!("No databases");
@@ -182,6 +183,10 @@ fn print_databases(mut databases: Vec<Database>, app: Option<String>, database: 
     }
     if let Some(name) = &database {
         databases.retain(|db| db.name == *name);
+        if databases.is_empty() {
+            println!("No database with name '{name}'");
+            return;
+        }
     }
 
     let no_link_dbs: Vec<_> = databases.iter().filter(|db| db.links.is_empty()).collect();
@@ -196,33 +201,24 @@ fn print_databases(mut databases: Vec<Database>, app: Option<String>, database: 
         .collect();
     if let Some(name) = &app {
         links.retain(|d| d.app_name() == *name);
+        if links.is_empty() {
+            println!("No databases linked to an app named '{name}'");
+            return;
+        }
     }
 
     let mut table = comfy_table::Table::new();
-    let header: Vec<&str> = vec!["Database", "Link"];
-    table.set_header(header);
-    no_link_dbs.into_iter().for_each(|db| {
-        table.add_row(vec![db.name.clone(), String::from("-")]);
-    });
+    table.set_header(vec!["Database", "Links"]);
+    table.add_rows(no_link_dbs.iter().map(|d| [&d.name, "-"]));
 
-    if app.is_none() && database.is_none() {
-        let mut map = HashMap::new();
-        links.into_iter().for_each(|d| {
-            map.entry(d.resource.clone())
-                .and_modify(|v| *v = format!("{}, {}:{}", *v, d.app_name(), d.resource_label.label))
-                .or_insert(format!("{}:{}", d.app_name(), d.resource_label.label));
-        });
-        map.into_iter().for_each(|e| {
-            table.add_row(vec![e.0, e.1]);
-        })
-    } else {
-        links.into_iter().for_each(|d| {
-            table.add_row(vec![
-                d.resource.clone(),
-                format!("{}:{}", d.app_name(), d.resource_label.label),
-            ]);
-        });
+    let mut map = HashMap::new();
+    for link in &links {
+        let app_name = link.app_name();
+        map.entry(&link.resource)
+            .and_modify(|v| *v = format!("{}, {}:{}", *v, app_name, link.resource_label.label))
+            .or_insert(format!("{}:{}", app_name, link.resource_label.label));
     }
+    table.add_rows(map.iter().map(|(d, l)| [d, l]));
     println!("{table}");
 }
 

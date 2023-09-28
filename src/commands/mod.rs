@@ -37,7 +37,8 @@ async fn client_and_app_id(
 ) -> Result<(CloudClient, Uuid)> {
     let client = create_cloud_client(deployment_env_id).await?;
     let app_id = get_app_id_cloud(&client, app)
-        .await?
-        .with_context(|| format!("Could not find app_id for app {}", app))?;
+        .await
+        .with_context(|| format!("Error finding app_id for app '{}'", app))?
+        .with_context(|| format!("Could not find app '{}'", app))?;
     Ok((client, app_id))
 }
