@@ -27,7 +27,7 @@ use uuid::Uuid;
 use crate::{
     commands::{
         get_app_id_cloud,
-        variables::{get_variables, set_variables, Variable},
+        variables::{get_variables, set_variables},
     },
     spin,
 };
