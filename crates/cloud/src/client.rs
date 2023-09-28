@@ -13,7 +13,8 @@ use cloud_openapi::{
         key_value_pairs_api::api_key_value_pairs_post,
         revisions_api::{api_revisions_get, api_revisions_post},
         sql_databases_api::{
-            api_sql_databases_create_post, api_sql_databases_delete,
+            api_sql_databases_create_post, api_sql_databases_database_links_delete,
+            api_sql_databases_database_links_post, api_sql_databases_delete,
             api_sql_databases_execute_post, api_sql_databases_get,
         },
         variable_pairs_api::{
@@ -27,7 +28,7 @@ use cloud_openapi::{
         CreateSqlDatabaseCommand, CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand,
         DeleteVariablePairCommand, DeviceCodeItem, EnvironmentVariableItem,
         ExecuteSqlStatementCommand, GetChannelLogsVm, GetSqlDatabasesQuery, GetVariablesQuery,
-        RefreshTokenCommand, RegisterRevisionCommand, RevisionItemPage, TokenInfo,
+        RefreshTokenCommand, RegisterRevisionCommand, ResourceLabel, RevisionItemPage, TokenInfo,
     },
 };
 use reqwest::header;
@@ -131,18 +132,13 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn add_app(
-        &self,
-        name: &str,
-        storage_id: &str,
-        create_default_database: bool,
-    ) -> Result<Uuid> {
+    pub async fn add_app(&self, name: &str, storage_id: &str) -> Result<Uuid> {
         api_apps_post(
             &self.configuration,
             CreateAppCommand {
                 name: name.to_string(),
                 storage_id: storage_id.to_string(),
-                create_default_database: Some(create_default_database),
+                create_default_database: None,
             },
             None,
         )
@@ -401,12 +397,21 @@ impl Client {
         Ok(list.vars)
     }
 
-    pub async fn create_database(&self, app_id: Option<Uuid>, name: String) -> anyhow::Result<()> {
+    pub async fn create_database(
+        &self,
+        name: String,
+        resource_label: Option<ResourceLabel>,
+    ) -> anyhow::Result<()> {
+        let (app_id, label) = match resource_label {
+            Some(rl) => (Some(Some(rl.app_id)), Some(Some(rl.label))),
+            None => (None, None),
+        };
         api_sql_databases_create_post(
             &self.configuration,
             CreateSqlDatabaseCommand {
                 name,
-                app_id: Some(app_id),
+                app_id,
+                label,
             },
             None,
         )
@@ -446,6 +451,28 @@ impl Client {
         .await
         .map_err(format_response_error)?;
         Ok(list.databases)
+    }
+
+    /// Do we want to future proof this? Right now this assumes all links are to databases
+    /// but that might not be true in the future.
+    pub async fn create_database_link(
+        &self,
+        database: &str,
+        resource_label: ResourceLabel,
+    ) -> anyhow::Result<()> {
+        api_sql_databases_database_links_post(&self.configuration, database, resource_label, None)
+            .await
+            .map_err(format_response_error)
+    }
+
+    pub async fn remove_database_link(
+        &self,
+        database: &str,
+        resource_label: ResourceLabel,
+    ) -> anyhow::Result<()> {
+        api_sql_databases_database_links_delete(&self.configuration, database, resource_label, None)
+            .await
+            .map_err(format_response_error)
     }
 }
 
