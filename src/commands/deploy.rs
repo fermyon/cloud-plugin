@@ -24,9 +24,12 @@ use std::{
 use url::Url;
 use uuid::Uuid;
 
-use crate::commands::{
-    get_app_id_cloud,
-    variables::{get_variables, set_variables},
+use crate::{
+    commands::{
+        get_app_id_cloud,
+        variables::{get_variables, set_variables, Variable},
+    },
+    spin,
 };
 
 use crate::{
@@ -73,6 +76,10 @@ pub struct DeployCommand {
     )]
     pub buildinfo: Option<BuildMetadata>,
 
+    /// Specifies to perform `spin build` before deploying the application.
+    #[clap(long, takes_value = false, env = "SPIN_ALWAYS_BUILD")]
+    pub build: bool,
+
     /// How long in seconds to wait for a deployed HTTP application to become
     /// ready. The default is 60 seconds. Set it to 0 to skip waiting
     /// for readiness.
@@ -103,6 +110,10 @@ pub struct DeployCommand {
 
 impl DeployCommand {
     pub async fn run(self) -> Result<()> {
+        if self.build {
+            self.run_spin_build().await?;
+        }
+
         let login_connection = login_connection(self.deployment_env_id.as_deref()).await?;
 
         const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
@@ -482,6 +493,24 @@ impl DeployCommand {
 
         Ok(digest)
     }
+
+    async fn run_spin_build(&self) -> Result<()> {
+        let manifest_path = self.app()?;
+        let spin_bin = spin::bin_path()?;
+
+        let result = tokio::process::Command::new(spin_bin)
+            .args(["build", "-f"])
+            .arg(&manifest_path)
+            .status()
+            .await
+            .context("Failed to execute `spin build` command")?;
+
+        if result.success() {
+            Ok(())
+        } else {
+            Err(anyhow!("Build failed: deployment cancelled"))
+        }
+    }
 }
 
 // SAFE_APP_NAME regex to only allow letters/numbers/underscores/dashes
@@ -549,16 +578,6 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
             .find(|db| *db != SPIN_DEFAULT_DATABASE)
         {
             bail!("Invalid database {invalid_db:?} for component {:?}. Cloud currently supports only the 'default' SQLite databases.", component.id);
-        }
-
-        if let Some(self_host) = component
-            .wasm
-            .allowed_http_hosts
-            .iter()
-            .flatten()
-            .find(|h| *h == "self")
-        {
-            bail!("Invalid allowed host {self_host:?} for component {:?}. Cloud currently does not yet support self.", component.id);
         }
     }
     Ok(())

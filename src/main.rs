@@ -1,5 +1,6 @@
 mod commands;
 mod opts;
+mod spin;
 
 use anyhow::{Error, Result};
 use clap::{FromArgMatches, Parser};
@@ -28,7 +29,7 @@ const VERSION: &str = concat!(
 #[clap(propagate_version = true)]
 enum CloudCli {
     /// Manage applications deployed to Fermyon Cloud
-    #[clap(subcommand)]
+    #[clap(subcommand, alias = "app")]
     Apps(AppsCommand),
     /// Package and upload an application to the Fermyon Cloud.
     Deploy(DeployCommand),
