@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use chrono::{DateTime, Utc};
 use clap::Parser;
@@ -11,23 +9,16 @@ use cloud_openapi::models::{
 use oci_distribution::{token_cache, Reference, RegistryOperation};
 use rand::Rng;
 use semver::BuildMetadata;
-use sha2::{Digest, Sha256};
 use spin_common::{arg_parser::parse_kv, sloth};
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
-use spin_loader::local::{
-    assets,
-    config::{self, RawAppManifest},
-    parent_dir,
-};
+use spin_loader::local::config::{self, RawAppManifest};
 use spin_manifest::{ApplicationTrigger, HttpTriggerConfiguration, TriggerConfig};
 use tokio::fs;
 use tracing::instrument;
 
 use std::{
     collections::HashSet,
-    env,
-    fs::File,
-    io::{self, copy, Write},
+    io::{self, Write},
     path::PathBuf,
 };
 use url::Url;
@@ -35,7 +26,7 @@ use uuid::Uuid;
 
 use crate::commands::{
     get_app_id_cloud,
-    variables::{get_variables, set_variables, Variable},
+    variables::{get_variables, set_variables},
 };
 
 use crate::{
@@ -295,45 +286,6 @@ impl DeployCommand {
         }
 
         Ok(())
-    }
-
-    async fn compute_buildinfo(&self, cfg: &RawAppManifest) -> Result<BuildMetadata> {
-        let app_file = self.app()?;
-        let mut sha256 = Sha256::new();
-        let app_folder = parent_dir(&app_file)?;
-
-        for x in cfg.components.iter() {
-            match &x.source {
-                config::RawModuleSource::FileReference(p) => {
-                    let full_path = app_folder.join(p);
-                    let mut r = File::open(&full_path)
-                        .with_context(|| anyhow!("Cannot open file {}", &full_path.display()))?;
-                    copy(&mut r, &mut sha256)?;
-                }
-                config::RawModuleSource::Url(us) => sha256.update(us.digest.as_bytes()),
-            }
-
-            if let Some(files) = &x.wasm.files {
-                let exclude_files = x.wasm.exclude_files.clone().unwrap_or_default();
-                let fm = assets::collect(files, &exclude_files, &app_folder)?;
-                for f in fm.iter() {
-                    let mut r = File::open(&f.src)
-                        .with_context(|| anyhow!("Cannot open file {}", &f.src.display()))?;
-                    copy(&mut r, &mut sha256)?;
-                }
-            }
-        }
-
-        let mut r = File::open(&app_file)?;
-        copy(&mut r, &mut sha256)?;
-
-        let mut final_digest = format!("q{:x}", sha256.finalize());
-        final_digest.truncate(8);
-
-        let buildinfo =
-            BuildMetadata::new(&final_digest).with_context(|| "Could not compute build info")?;
-
-        Ok(buildinfo)
     }
 
     async fn validate_deployment_environment(
@@ -637,7 +589,7 @@ async fn get_database_selection_for_existing_app(
     {
         return Ok(ExistingAppDatabaseSelection::AlreadyLinked);
     }
-    let selection = prompt_database_selection(client, name, &resource_label.label, databases)?;
+    let selection = prompt_database_selection(name, &resource_label.label, databases)?;
     Ok(ExistingAppDatabaseSelection::NotYetLinked(selection))
 }
 
@@ -647,18 +599,17 @@ async fn get_database_selection_for_new_app(
     label: &str,
 ) -> Result<DatabaseSelection> {
     let databases = client.get_databases(None).await?;
-    prompt_database_selection(client, name, label, databases)
+    prompt_database_selection(name, label, databases)
 }
 
 fn prompt_database_selection(
-    client: &CloudClient,
     name: &str,
     label: &str,
     databases: Vec<Database>,
 ) -> Result<DatabaseSelection> {
     let prompt = format!(
         r#"App "{name}" accesses a database labeled "{label}"
-        Would you like to link an existing database or create a new database?"#
+Would you like to link an existing database or create a new database?"#
     );
     let existing_opt = "Use an existing database and link app to it";
     let create_opt = "Create a new database and link the app to it";
@@ -674,18 +625,16 @@ fn prompt_database_selection(
     };
     match index {
         0 => prompt_for_existing_database(
-            client,
             name,
             label,
             databases.into_iter().map(|d| d.name).collect::<Vec<_>>(),
         ),
-        1 => prompt_link_to_new_database(client, name, label),
+        1 => prompt_link_to_new_database(name, label),
         _ => bail!("Choose unavailable option"),
     }
 }
 
 fn prompt_for_existing_database(
-    client: &CloudClient,
     name: &str,
     label: &str,
     mut database_names: Vec<String>,
@@ -704,15 +653,13 @@ fn prompt_for_existing_database(
     Ok(DatabaseSelection::Existing(database_names.remove(index)))
 }
 
-fn prompt_link_to_new_database(
-    client: &CloudClient,
-    name: &str,
-    label: &str,
-) -> Result<DatabaseSelection> {
+fn prompt_link_to_new_database(name: &str, label: &str) -> Result<DatabaseSelection> {
     // TODO: use random name generator
     let default_name = format!("{name}-db");
     let prompt = format!(
-        r#"What would you like to name your database?\nNote: This name is used when managing your database at the account level. The app "{name}" will refer to this database by the label "{label}". Other apps can use different labels to refer to the same database."#
+        r#"What would you like to name your database?
+Note: This name is used when managing your database at the account level. The app "{name}" will refer to this database by the label "{label}".
+Other apps can use different labels to refer to the same database."#
     );
     let name = dialoguer::Input::new()
         .with_prompt(prompt)
@@ -1108,10 +1055,10 @@ mod test {
         check_safe_app_name("hello-world").expect("should have accepted 'hello-world'");
         check_safe_app_name("hell0_w0rld").expect("should have accepted 'hell0_w0rld'");
 
-        let err =
+        let _ =
             check_safe_app_name("hello/world").expect_err("should not have accepted 'hello/world'");
 
-        let err =
+        let _ =
             check_safe_app_name("hello world").expect_err("should not have accepted 'hello world'");
     }
 
