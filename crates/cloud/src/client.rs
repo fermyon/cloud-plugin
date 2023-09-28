@@ -453,8 +453,6 @@ impl Client {
         Ok(list.databases)
     }
 
-    /// Do we want to future proof this? Right now this assumes all links are to databases
-    /// but that might not be true in the future.
     pub async fn create_database_link(
         &self,
         database: &str,

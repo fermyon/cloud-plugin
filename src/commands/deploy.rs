@@ -237,7 +237,7 @@ impl DeployCommand {
                         None => return Ok(()), // User canceled terminal interaction
                     };
 
-                let app_id = CloudClient::add_app(&client, &name, &name)
+                let app_id = CloudClient::add_app(&client, &name, &storage_id)
                     .await
                     .context("Unable to create app")?;
 
@@ -674,7 +674,7 @@ fn prompt_for_existing_database(
 
 fn prompt_link_to_new_database(name: &str, label: &str) -> Result<DatabaseSelection> {
     // TODO: use random name generator
-    let default_name = format!("{name}-db");
+    let default_name = format!("{name}-{label}");
     let prompt = format!(
         r#"What would you like to name your database?
 Note: This name is used when managing your database at the account level. The app "{name}" will refer to this database by the label "{label}".
