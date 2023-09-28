@@ -76,7 +76,8 @@ impl SqliteLinkCommand {
         match (existing_link_for_database, existing_link_for_other_database) {
             (Some(link), _) => {
                 anyhow::bail!(
-                    r#"A Database is already linked to app "{}" with the label "{}""#,
+                    r#"Database "{}" is already linked to app "{}" with the label "{}""#,
+                    link.resource,
                     link.app_name(),
                     link.resource_label.label,
                 );
@@ -90,14 +91,76 @@ impl SqliteLinkCommand {
                 );
             }
             (None, None) => {
+                let success_msg = format!(
+                    "Database '{}' is now linked to app '{}' with the label '{}'",
+                    self.database, self.app, self.label
+                );
                 let resource_label = ResourceLabel {
                     app_id,
                     label: self.label,
-                    app_name: Some(Some(self.app)),
+                    app_name: None,
                 };
                 CloudClient::create_database_link(&client, &self.database, resource_label).await?;
+                println!("{success_msg}");
             }
         }
+        Ok(())
+    }
+}
+
+/// Manage how apps and resources are linked together
+#[derive(Parser, Debug)]
+pub enum UnlinkCommand {
+    /// Link an app to a sqlite database
+    Sqlite(SqliteUnlinkCommand),
+}
+
+impl UnlinkCommand {
+    pub async fn run(self) -> Result<()> {
+        match self {
+            Self::Sqlite(cmd) => cmd.unlink().await,
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct SqliteUnlinkCommand {
+    #[clap(flatten)]
+    common: CommonArgs,
+    /// The name by which the application refers to the database
+    label: String,
+    #[clap(short = 'a', long = "app")]
+    /// The app that will be using the database
+    app: String,
+}
+
+impl SqliteUnlinkCommand {
+    async fn unlink(self) -> Result<()> {
+        let (client, app_id) =
+            client_and_app_id(self.common.deployment_env_id.as_deref(), &self.app).await?;
+        let (database, label) = client
+            .get_databases(Some(app_id))
+            .await
+            .context("could not fetch databases")?
+            .into_iter()
+            .find_map(|d| {
+                d.links
+                    .into_iter()
+                    .find(|l| {
+                        matches!(&l.app_name, Some(Some(app_name)) if app_name == &self.app)
+                            && l.label == self.label
+                    })
+                    .map(|l| (d.name, l))
+            })
+            .with_context(|| {
+                format!(
+                    "no database was linked to app '{}' with label '{}'",
+                    self.app, self.label
+                )
+            })?;
+
+        CloudClient::remove_database_link(&client, &database, label).await?;
+        println!("Database '{database}' no longer linked to app {}", self.app);
         Ok(())
     }
 }
