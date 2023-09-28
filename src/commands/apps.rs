@@ -2,7 +2,7 @@ use crate::commands::{client_and_app_id, create_cloud_client};
 use crate::opts::*;
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
-use cloud_openapi::models::{AppItem, AppItemPage, DomainValidationStatus};
+use cloud_openapi::models::{AppItem, AppItemPage, ValidationStatus};
 
 #[derive(Parser, Debug)]
 #[clap(about = "Manage applications deployed to Fermyon Cloud")]
@@ -119,8 +119,11 @@ fn domains_current_and_in_progress(app: &AppItem) -> (Option<&String>, Option<&S
     let auto_domain = app.channels[0].domain.as_ref();
     match &app.domain {
         Some(val) => match val.validation_status {
-            DomainValidationStatus::InProgress => (auto_domain, Some(&val.name)),
-            DomainValidationStatus::Ready => (Some(&val.name), None),
+            ValidationStatus::InProgress | ValidationStatus::Provisioning => {
+                (auto_domain, Some(&val.name))
+            }
+            ValidationStatus::Ready => (Some(&val.name), None),
+            ValidationStatus::Error => (auto_domain, None),
         },
         None => (auto_domain, None),
     }

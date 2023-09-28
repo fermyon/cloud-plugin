@@ -1,15 +1,13 @@
-use std::collections::HashMap;
-
+use crate::commands::create_cloud_client;
+use crate::commands::link::Link;
+use crate::opts::*;
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
 use cloud::client::Client as CloudClient;
-// use cloud_openapi::models::Database;
-use cloud::mocks::AppLabel;
-use cloud::mocks::Database as MockDatabase;
+use cloud_openapi::models::Database;
+use cloud_openapi::models::ResourceLabel;
 use dialoguer::Input;
-
-use crate::commands::create_cloud_client;
-use crate::opts::*;
+use std::collections::HashMap;
 
 /// Manage Fermyon Cloud NoOps SQL databases
 #[derive(Parser, Debug)]
@@ -107,7 +105,7 @@ impl SqliteCommand {
 impl CreateCommand {
     pub async fn run(self) -> Result<()> {
         let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
-        let list = CloudClient::get_databases(&client)
+        let list = CloudClient::get_databases(&client, None)
             .await
             .context("Problem fetching databases")?;
         if list.iter().any(|d| d.name == self.name) {
@@ -124,7 +122,7 @@ impl CreateCommand {
 impl DeleteCommand {
     pub async fn run(self) -> Result<()> {
         let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
-        let list = CloudClient::get_databases(&client)
+        let list = CloudClient::get_databases(&client, None)
             .await
             .context("Problem fetching databases")?;
         let found = list.iter().find(|d| d.name == self.name);
@@ -147,7 +145,7 @@ impl DeleteCommand {
 impl ExecuteCommand {
     pub async fn run(self) -> Result<()> {
         let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
-        let list = CloudClient::get_databases(&client)
+        let list = CloudClient::get_databases(&client, None)
             .await
             .context("Problem fetching databases")?;
         if !list.iter().any(|d| d.name == self.name) {
@@ -169,7 +167,7 @@ impl ExecuteCommand {
 impl ListCommand {
     pub async fn run(self) -> Result<()> {
         let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
-        let list = CloudClient::get_databases(&client)
+        let list = CloudClient::get_databases(&client, None)
             .await
             .context("Problem listing databases")?;
         print_databases(list, self.app, self.database);
@@ -177,11 +175,7 @@ impl ListCommand {
     }
 }
 
-fn print_databases(
-    mut databases: Vec<MockDatabase>,
-    app: Option<String>,
-    database: Option<String>,
-) {
+fn print_databases(mut databases: Vec<Database>, app: Option<String>, database: Option<String>) {
     if databases.is_empty() {
         println!("No databases");
         return;
@@ -189,22 +183,19 @@ fn print_databases(
     if let Some(name) = &database {
         databases.retain(|db| db.name == *name);
     }
-    struct DBLink {
-        name: String,
-        link: AppLabel,
-    }
+
     let no_link_dbs: Vec<_> = databases.iter().filter(|db| db.links.is_empty()).collect();
-    let mut links: Vec<DBLink> = databases
+    let mut links: Vec<Link> = databases
         .iter()
         .flat_map(|db| {
-            db.links.iter().map(|l| DBLink {
-                name: db.name.clone(),
-                link: l.clone(),
+            db.links.iter().map(|l| Link {
+                resource: db.name.clone(),
+                resource_label: l.clone(),
             })
         })
         .collect();
     if let Some(name) = &app {
-        links.retain(|d| d.link.app_name == *name);
+        links.retain(|d| d.app_name() == *name);
     }
 
     let mut table = comfy_table::Table::new();
@@ -217,9 +208,9 @@ fn print_databases(
     if app.is_none() && database.is_none() {
         let mut map = HashMap::new();
         links.into_iter().for_each(|d| {
-            map.entry(d.name)
-                .and_modify(|v| *v = format!("{}, {}:{}", *v, d.link.app_name, d.link.label))
-                .or_insert(format!("{}:{}", d.link.app_name, d.link.label));
+            map.entry(d.resource.clone())
+                .and_modify(|v| *v = format!("{}, {}:{}", *v, d.app_name(), d.resource_label.label))
+                .or_insert(format!("{}:{}", d.app_name(), d.resource_label.label));
         });
         map.into_iter().for_each(|e| {
             table.add_row(vec![e.0, e.1]);
@@ -227,18 +218,24 @@ fn print_databases(
     } else {
         links.into_iter().for_each(|d| {
             table.add_row(vec![
-                d.name.clone(),
-                format!("{}:{}", d.link.app_name, d.link.label),
+                d.resource.clone(),
+                format!("{}:{}", d.app_name(), d.resource_label.label),
             ]);
         });
     }
     println!("{table}");
 }
 
-fn prompt_delete_database(database: &str, links: &[AppLabel]) -> std::io::Result<bool> {
+fn prompt_delete_database(database: &str, links: &[ResourceLabel]) -> std::io::Result<bool> {
+    let app_name_unwrapping = |r: &ResourceLabel| {
+        r.app_name
+            .clone()
+            .expect("no app name field in ResourceLabel")
+            .expect("no app name set in ResourceLabel")
+    };
     let existing_links = links
         .iter()
-        .map(|l| format!("{}:{}", l.app_name, l.label))
+        .map(|l| format!("{}:{}", app_name_unwrapping(l), l.label))
         .collect::<Vec<String>>()
         .join(", ");
     let mut prompt = String::new();
@@ -259,4 +256,18 @@ fn prompt_delete_database(database: &str, links: &[AppLabel]) -> std::io::Result
         println!("Deleting database ...");
         Ok(true)
     }
+}
+
+pub fn find_database_link(db: &Database, label: &str) -> Option<Link> {
+    db.links.iter().find_map(|r| {
+        if r.label == label {
+            Some(Link::new(r.clone(), db.name.clone()))
+        } else {
+            None
+        }
+    })
+}
+
+pub fn database_has_link(db: &Database, link: &ResourceLabel) -> bool {
+    db.links.iter().any(|l| l == link)
 }
