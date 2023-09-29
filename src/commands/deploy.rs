@@ -1,30 +1,24 @@
-#![allow(unused)]
-
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::client::{Client as CloudClient, ConnectionConfig};
-use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
+use cloud_openapi::models::{
+    ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy, Database,
+    ResourceLabel,
+};
 use oci_distribution::{token_cache, Reference, RegistryOperation};
 use rand::Rng;
 use semver::BuildMetadata;
-use sha2::{Digest, Sha256};
 use spin_common::{arg_parser::parse_kv, sloth};
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
-use spin_loader::local::{
-    assets,
-    config::{self, RawAppManifest},
-    parent_dir,
-};
+use spin_loader::local::config::{self, RawAppManifest};
 use spin_manifest::{ApplicationTrigger, HttpTriggerConfiguration, TriggerConfig};
 use tokio::fs;
 use tracing::instrument;
 
 use std::{
     collections::HashSet,
-    env,
-    fs::File,
-    io::{self, copy, Write},
+    io::{self, Write},
     path::PathBuf,
 };
 use url::Url;
@@ -33,8 +27,9 @@ use uuid::Uuid;
 use crate::{
     commands::{
         get_app_id_cloud,
-        variables::{get_variables, set_variables, Variable},
+        variables::{get_variables, set_variables},
     },
+    random_name::RandomNameGenerator,
     spin,
 };
 
@@ -43,6 +38,8 @@ use crate::{
     opts::*,
     parse_buildinfo,
 };
+
+use super::sqlite::database_has_link;
 
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
@@ -187,10 +184,16 @@ impl DeployCommand {
         println!("Deploying...");
 
         // Create or update app
-        let channel_id = match get_app_id_cloud(&client, &name).await {
-            Ok(app_id) => {
-                if uses_default_db(&cfg) {
-                    create_default_database_if_does_not_exist(&name, app_id, &client).await?;
+        let channel_id = match get_app_id_cloud(&client, &name).await? {
+            Some(app_id) => {
+                let labels = sqlite_labels_used(&cfg);
+                if !labels.is_empty()
+                    && create_and_link_databases_for_existing_app(&client, &name, app_id, labels)
+                        .await?
+                        .is_none()
+                {
+                    // User canceled terminal interaction
+                    return Ok(());
                 }
                 CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
                 let existing_channel_id = self
@@ -227,11 +230,20 @@ impl DeployCommand {
 
                 existing_channel_id
             }
-            Err(_) => {
-                let create_default_db = uses_default_db(&cfg);
-                let app_id = CloudClient::add_app(&client, &name, &storage_id, create_default_db)
+            None => {
+                let labels = sqlite_labels_used(&cfg);
+                let databases_to_link =
+                    match create_databases_for_new_app(&client, &name, labels).await? {
+                        Some(dbs) => dbs,
+                        None => return Ok(()), // User canceled terminal interaction
+                    };
+
+                let app_id = CloudClient::add_app(&client, &name, &storage_id)
                     .await
                     .context("Unable to create app")?;
+
+                // Now that the app has been created, we can link databases to it.
+                link_databases(&client, name, app_id, databases_to_link).await?;
 
                 CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
 
@@ -288,45 +300,6 @@ impl DeployCommand {
         Ok(())
     }
 
-    async fn compute_buildinfo(&self, cfg: &RawAppManifest) -> Result<BuildMetadata> {
-        let app_file = self.app()?;
-        let mut sha256 = Sha256::new();
-        let app_folder = parent_dir(&app_file)?;
-
-        for x in cfg.components.iter() {
-            match &x.source {
-                config::RawModuleSource::FileReference(p) => {
-                    let full_path = app_folder.join(p);
-                    let mut r = File::open(&full_path)
-                        .with_context(|| anyhow!("Cannot open file {}", &full_path.display()))?;
-                    copy(&mut r, &mut sha256)?;
-                }
-                config::RawModuleSource::Url(us) => sha256.update(us.digest.as_bytes()),
-            }
-
-            if let Some(files) = &x.wasm.files {
-                let exclude_files = x.wasm.exclude_files.clone().unwrap_or_default();
-                let fm = assets::collect(files, &exclude_files, &app_folder)?;
-                for f in fm.iter() {
-                    let mut r = File::open(&f.src)
-                        .with_context(|| anyhow!("Cannot open file {}", &f.src.display()))?;
-                    copy(&mut r, &mut sha256)?;
-                }
-            }
-        }
-
-        let mut r = File::open(&app_file)?;
-        copy(&mut r, &mut sha256)?;
-
-        let mut final_digest = format!("q{:x}", sha256.finalize());
-        final_digest.truncate(8);
-
-        let buildinfo =
-            BuildMetadata::new(&final_digest).with_context(|| "Could not compute build info")?;
-
-        Ok(buildinfo)
-    }
-
     async fn validate_deployment_environment(
         &self,
         app: &RawAppManifest,
@@ -349,7 +322,7 @@ impl DeployCommand {
         &self,
         required_variables: &HashSet<&String>,
         client: &CloudClient,
-        app_name: &str,
+        name: &str,
     ) -> Result<()> {
         // Are all required variables satisifed by variables passed in this command?
         let provided_variables = self.variables.iter().map(|(k, _)| k).collect();
@@ -362,10 +335,7 @@ impl DeployCommand {
         }
 
         // Are all remaining required variables satisfied by variables already in the cloud?
-        let extant_variables = match self
-            .try_get_app_id_cloud(client, app_name.to_string())
-            .await
-        {
+        let extant_variables = match self.try_get_app_id_cloud(client, name.to_string()).await {
             Ok(Some(app_id)) => match get_variables(client, app_id).await {
                 Ok(variables) => variables,
                 Err(_) => {
@@ -614,32 +584,216 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
     Ok(())
 }
 
-async fn create_default_database_if_does_not_exist(
-    app_name: &str,
-    app_id: Uuid,
-    client: &CloudClient,
-) -> Result<()> {
-    let default_db = client
-        .get_databases(Some(app_id))
-        .await?
-        .into_iter()
-        .find(|d| d.default);
-
-    if default_db.is_none() {
-        client
-            .create_database(Some(app_id), SPIN_DEFAULT_DATABASE.to_string())
-            .await?;
-    }
-    Ok(())
+/// A user's selection of a database to link to a label
+enum DatabaseSelection {
+    Existing(String),
+    New(String),
+    Cancelled,
 }
 
-fn uses_default_db(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> bool {
+/// Whether a database has already been linked or not
+enum ExistingAppDatabaseSelection {
+    NotYetLinked(DatabaseSelection),
+    AlreadyLinked,
+}
+
+async fn get_database_selection_for_existing_app(
+    name: &str,
+    client: &CloudClient,
+    resource_label: &ResourceLabel,
+) -> Result<ExistingAppDatabaseSelection> {
+    let databases = client.get_databases(None).await?;
+    if databases
+        .iter()
+        .any(|d| database_has_link(d, resource_label))
+    {
+        return Ok(ExistingAppDatabaseSelection::AlreadyLinked);
+    }
+    let selection = prompt_database_selection(name, &resource_label.label, databases)?;
+    Ok(ExistingAppDatabaseSelection::NotYetLinked(selection))
+}
+
+async fn get_database_selection_for_new_app(
+    name: &str,
+    client: &CloudClient,
+    label: &str,
+) -> Result<DatabaseSelection> {
+    let databases = client.get_databases(None).await?;
+    prompt_database_selection(name, label, databases)
+}
+
+fn prompt_database_selection(
+    name: &str,
+    label: &str,
+    databases: Vec<Database>,
+) -> Result<DatabaseSelection> {
+    let prompt = format!(
+        r#"App "{name}" accesses a database labeled "{label}"
+Would you like to link an existing database or create a new database?"#
+    );
+    let existing_opt = "Use an existing database and link app to it";
+    let create_opt = "Create a new database and link the app to it";
+    let opts = vec![existing_opt, create_opt];
+    let index = match dialoguer::Select::new()
+        .with_prompt(prompt)
+        .items(&opts)
+        .default(1)
+        .interact_opt()?
+    {
+        Some(i) => i,
+        None => return Ok(DatabaseSelection::Cancelled),
+    };
+    match index {
+        0 => prompt_for_existing_database(
+            name,
+            label,
+            databases.into_iter().map(|d| d.name).collect::<Vec<_>>(),
+        ),
+        1 => prompt_link_to_new_database(
+            name,
+            label,
+            databases
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<HashSet<_>>(),
+        ),
+        _ => bail!("Choose unavailable option"),
+    }
+}
+
+fn prompt_for_existing_database(
+    name: &str,
+    label: &str,
+    mut database_names: Vec<String>,
+) -> Result<DatabaseSelection> {
+    let prompt =
+        format!(r#"Which database would you like to link to {name} using the label "{label}""#);
+    let index = match dialoguer::Select::new()
+        .with_prompt(prompt)
+        .items(&database_names)
+        .default(0)
+        .interact_opt()?
+    {
+        Some(i) => i,
+        None => return Ok(DatabaseSelection::Cancelled),
+    };
+    Ok(DatabaseSelection::Existing(database_names.remove(index)))
+}
+
+fn prompt_link_to_new_database(
+    name: &str,
+    label: &str,
+    existing_names: HashSet<&str>,
+) -> Result<DatabaseSelection> {
+    let generator = RandomNameGenerator::new();
+    let default_name = generator
+        .generate_unique(existing_names, 20)
+        .context("could not generate unique database name")?;
+
+    let prompt = format!(
+        r#"What would you like to name your database?
+Note: This name is used when managing your database at the account level. The app "{name}" will refer to this database by the label "{label}".
+Other apps can use different labels to refer to the same database."#
+    );
+    let name = dialoguer::Input::new()
+        .with_prompt(prompt)
+        .default(default_name)
+        .interact_text()?;
+    Ok(DatabaseSelection::New(name))
+}
+
+fn sqlite_labels_used(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> Vec<String> {
     cfg.components
         .iter()
         .cloned()
         .filter_map(|c| c.wasm.sqlite_databases)
         .flatten()
-        .any(|db| db == SPIN_DEFAULT_DATABASE)
+        .collect()
+}
+
+// Loops through an app's manifest and creates databases.
+// Returns a list of database and label pairs that should be
+// linked to the app once it is created.
+// Returns None if the user canceled terminal interaction
+async fn create_databases_for_new_app(
+    client: &CloudClient,
+    name: &str,
+    labels: Vec<String>,
+) -> anyhow::Result<Option<Vec<(String, String)>>> {
+    let mut databases_to_link = Vec::new();
+    for label in labels {
+        let db = match get_database_selection_for_new_app(name, client, &label).await? {
+            DatabaseSelection::Existing(db) => db,
+            DatabaseSelection::New(db) => {
+                client.create_database(db.clone(), None).await?;
+                db
+            }
+            // User canceled terminal interaction
+            DatabaseSelection::Cancelled => return Ok(None),
+        };
+        databases_to_link.push((db, label));
+    }
+    Ok(Some(databases_to_link))
+}
+
+// Loops through an updated app's manifest and creates and links any newly referenced databases.
+// Returns None if the user canceled terminal interaction
+async fn create_and_link_databases_for_existing_app(
+    client: &CloudClient,
+    app_name: &str,
+    app_id: Uuid,
+    labels: Vec<String>,
+) -> anyhow::Result<Option<()>> {
+    for label in labels {
+        let resource_label = ResourceLabel {
+            app_id,
+            label,
+            app_name: Some(app_name.to_string()),
+        };
+        if let ExistingAppDatabaseSelection::NotYetLinked(selection) =
+            get_database_selection_for_existing_app(app_name, client, &resource_label).await?
+        {
+            match selection {
+                // User canceled terminal interaction
+                DatabaseSelection::Cancelled => return Ok(None),
+                DatabaseSelection::New(db) => {
+                    client.create_database(db, Some(resource_label)).await?;
+                }
+                DatabaseSelection::Existing(db) => {
+                    CloudClient::create_database_link(client, &db, resource_label)
+                        .await
+                        .with_context(|| {
+                            format!(r#"Could not link database "{}" to app "{}""#, db, app_name,)
+                        })?;
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+async fn link_databases(
+    client: &CloudClient,
+    app_name: String,
+    app_id: Uuid,
+    database_labels: Vec<(String, String)>,
+) -> anyhow::Result<()> {
+    for (database, label) in database_labels {
+        let resource_label = ResourceLabel {
+            label,
+            app_id,
+            app_name: Some(app_name.clone()),
+        };
+        CloudClient::create_database_link(client, &database, resource_label)
+            .await
+            .with_context(|| {
+                format!(
+                    r#"Failed to link database "{}" to app "{}""#,
+                    database, app_name
+                )
+            })?;
+    }
+    Ok(())
 }
 
 fn random_buildinfo() -> BuildMetadata {
@@ -935,10 +1089,10 @@ mod test {
         check_safe_app_name("hello-world").expect("should have accepted 'hello-world'");
         check_safe_app_name("hell0_w0rld").expect("should have accepted 'hell0_w0rld'");
 
-        let err =
+        let _ =
             check_safe_app_name("hello/world").expect_err("should not have accepted 'hello/world'");
 
-        let err =
+        let _ =
             check_safe_app_name("hello world").expect_err("should not have accepted 'hello world'");
     }
 

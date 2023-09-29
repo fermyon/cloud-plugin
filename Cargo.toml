@@ -17,6 +17,7 @@ chrono = "0.4"
 clap = { version = "3.2.24", features = ["derive", "env"] }
 cloud = { path = "crates/cloud" }
 cloud-openapi = { workspace = true }
+comfy-table = "7"
 dirs = "5.0"
 dialoguer = "0.10"
 lazy_static = "1.4.0"
@@ -49,7 +50,7 @@ openssl = { version = "0.10" }
 
 [workspace.dependencies]
 tracing = { version = "0.1", features = ["log"] }
-cloud-openapi = { git = "https://github.com/fermyon/cloud-openapi", rev = "c37c0f28c06a206ebe05a811c2b886290a5bab40" }
+cloud-openapi = { git = "https://github.com/fermyon/cloud-openapi", rev = "5e1f78041927dafc186ef6fa06ebe93bdec37fe7" }
 
 [build-dependencies]
 vergen = { version = "^8.2.1", default-features = false, features = [

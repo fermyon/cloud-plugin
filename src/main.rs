@@ -1,11 +1,16 @@
 mod commands;
 mod opts;
+mod random_name;
 mod spin;
 
 use anyhow::{Error, Result};
 use clap::{FromArgMatches, Parser};
 use commands::{
-    apps::AppsCommand, deploy::DeployCommand, login::LoginCommand, sqlite::SqliteCommand,
+    apps::AppsCommand,
+    deploy::DeployCommand,
+    link::{LinkCommand, UnlinkCommand},
+    login::LoginCommand,
+    sqlite::SqliteCommand,
     variables::VariablesCommand,
 };
 use semver::BuildMetadata;
@@ -37,6 +42,12 @@ enum CloudCli {
     /// Manage Fermyon Cloud NoOps SQL databases
     #[clap(subcommand)]
     Sqlite(SqliteCommand),
+    /// Link apps to resources
+    #[clap(subcommand)]
+    Link(LinkCommand),
+    /// Unlink apps from resources
+    #[clap(subcommand)]
+    Unlink(UnlinkCommand),
 }
 
 #[tokio::main]
@@ -53,6 +64,8 @@ async fn main() -> Result<(), Error> {
         CloudCli::Login(cmd) => cmd.run().await,
         CloudCli::Variables(cmd) => cmd.run().await,
         CloudCli::Sqlite(cmd) => cmd.run().await,
+        CloudCli::Link(cmd) => cmd.run().await,
+        CloudCli::Unlink(cmd) => cmd.run().await,
     }
 }
 
