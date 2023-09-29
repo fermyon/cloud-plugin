@@ -249,12 +249,21 @@ fn print_apps<'a>(links: Vec<Link>, databases_without_links: impl Iterator<Item 
     let mut map = BTreeMap::new();
     for link in &links {
         let app_name = link.app_name();
-        map.entry(app_name)
-            .or_insert_with(|| [link.resource_label.label.as_str(), link.resource.as_str()]);
+        let key = format!(
+            "{}-{}{}",
+            link.resource, app_name, link.resource_label.label
+        );
+        map.insert(key, {
+            [
+                app_name,
+                link.resource_label.label.as_str(),
+                link.resource.as_str(),
+            ]
+        });
     }
     table.add_rows(
         map.iter()
-            .map(|(app, [label, database])| [app, label, database]),
+            .map(|(_, [app_name, label, database])| [app_name, label, database]),
     );
     println!("{table}");
 
