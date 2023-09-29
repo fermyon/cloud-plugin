@@ -1,5 +1,6 @@
 mod commands;
 mod opts;
+mod random_name;
 mod spin;
 
 use anyhow::{Error, Result};

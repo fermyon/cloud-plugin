@@ -29,6 +29,7 @@ use crate::{
         get_app_id_cloud,
         variables::{get_variables, set_variables},
     },
+    random_name::RandomNameGenerator,
     spin,
 };
 
@@ -648,7 +649,14 @@ Would you like to link an existing database or create a new database?"#
             label,
             databases.into_iter().map(|d| d.name).collect::<Vec<_>>(),
         ),
-        1 => prompt_link_to_new_database(name, label),
+        1 => prompt_link_to_new_database(
+            name,
+            label,
+            databases
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<HashSet<_>>(),
+        ),
         _ => bail!("Choose unavailable option"),
     }
 }
@@ -672,9 +680,16 @@ fn prompt_for_existing_database(
     Ok(DatabaseSelection::Existing(database_names.remove(index)))
 }
 
-fn prompt_link_to_new_database(name: &str, label: &str) -> Result<DatabaseSelection> {
-    // TODO: use random name generator
-    let default_name = format!("{name}-{label}");
+fn prompt_link_to_new_database(
+    name: &str,
+    label: &str,
+    existing_names: HashSet<&str>,
+) -> Result<DatabaseSelection> {
+    let generator = RandomNameGenerator::new();
+    let default_name = generator
+        .generate_unique(existing_names, 20)
+        .context("could not generate unique database name")?;
+
     let prompt = format!(
         r#"What would you like to name your database?
 Note: This name is used when managing your database at the account level. The app "{name}" will refer to this database by the label "{label}".
