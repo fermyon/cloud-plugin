@@ -7,7 +7,8 @@ use cloud::client::Client as CloudClient;
 use cloud_openapi::models::Database;
 use cloud_openapi::models::ResourceLabel;
 use dialoguer::Input;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::str::FromStr;
 
 /// Manage Fermyon Cloud NoOps SQL databases
 #[derive(Parser, Debug)]
@@ -74,9 +75,38 @@ pub struct ListCommand {
     app: Option<String>,
     #[clap(short = 'd', long = "database")]
     database: Option<String>,
+    #[clap(value_enum, short = 'g', long = "group-by", default_value_t = GroupBy::App)]
+    group_by: GroupBy,
     // TODO: like templates, enable multiple list formats
     // #[clap(value_enum, long = "format", default_value = "table", hide = true)]
     // pub format: ListFormat,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum GroupBy {
+    App,
+    Database,
+}
+
+impl std::fmt::Display for GroupBy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GroupBy::App => f.write_str("app"),
+            GroupBy::Database => f.write_str("database"),
+        }
+    }
+}
+
+impl FromStr for GroupBy {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "app" => Ok(Self::App),
+            "database" => Ok(Self::App),
+            s => Err(format!("Unrecognized group-by option: '{s}'")),
+        }
+    }
 }
 
 #[derive(Debug, Default, Args)]
@@ -167,51 +197,89 @@ impl ExecuteCommand {
 impl ListCommand {
     pub async fn run(self) -> Result<()> {
         let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
-        let list = CloudClient::get_databases(&client, None)
+        let mut databases = client
+            .get_databases(None)
             .await
             .context("Problem listing databases")?;
-        print_databases(list, self.app, self.database);
+
+        if databases.is_empty() {
+            println!("No databases");
+            return Ok(());
+        }
+        if let Some(name) = &self.database {
+            databases.retain(|db| db.name == *name);
+            if databases.is_empty() {
+                println!("No database with name '{name}'");
+                return Ok(());
+            }
+        }
+
+        let databases_without_links = databases.iter().filter(|db| db.links.is_empty());
+
+        let mut links = databases
+            .iter()
+            .flat_map(|db| {
+                db.links.iter().map(|l| Link {
+                    resource: db.name.clone(),
+                    resource_label: l.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        if let Some(name) = &self.app {
+            links.retain(|l| l.app_name() == *name);
+            if links.is_empty() {
+                println!("No databases linked to an app named '{name}'");
+                return Ok(());
+            }
+        }
+
+        match self.group_by {
+            GroupBy::App => print_apps(links, databases_without_links),
+            GroupBy::Database => print_databases(links, databases_without_links),
+        }
         Ok(())
     }
 }
 
-/// Print databases optionally filtering to a specifically supplied app and/or database
-fn print_databases(mut databases: Vec<Database>, app: Option<String>, database: Option<String>) {
-    if databases.is_empty() {
-        println!("No databases");
-        return;
-    }
-    if let Some(name) = &database {
-        databases.retain(|db| db.name == *name);
-        if databases.is_empty() {
-            println!("No database with name '{name}'");
-            return;
-        }
-    }
+/// Print apps optionally filtering to a specifically supplied app and/or database
+fn print_apps<'a>(links: Vec<Link>, databases_without_links: impl Iterator<Item = &'a Database>) {
+    let mut table = comfy_table::Table::new();
+    table.set_header(vec!["App", "Label", "Database"]);
 
-    let no_link_dbs: Vec<_> = databases.iter().filter(|db| db.links.is_empty()).collect();
-    let mut links: Vec<Link> = databases
-        .iter()
-        .flat_map(|db| {
-            db.links.iter().map(|l| Link {
-                resource: db.name.clone(),
-                resource_label: l.clone(),
-            })
-        })
-        .collect();
-    if let Some(name) = &app {
-        links.retain(|d| d.app_name() == *name);
-        if links.is_empty() {
-            println!("No databases linked to an app named '{name}'");
-            return;
-        }
+    let mut map = BTreeMap::new();
+    for link in &links {
+        let app_name = link.app_name();
+        map.entry(app_name)
+            .or_insert_with(|| [link.resource_label.label.as_str(), link.resource.as_str()]);
+    }
+    table.add_rows(
+        map.iter()
+            .map(|(app, [label, database])| [app, label, database]),
+    );
+    println!("{table}");
+
+    let mut databases_without_links = databases_without_links.peekable();
+    if databases_without_links.peek().is_none() {
+        return;
     }
 
     let mut table = comfy_table::Table::new();
-    table.set_header(vec!["Database", "Links"]);
-    table.add_rows(no_link_dbs.iter().map(|d| [&d.name, "-"]));
+    println!("Databases not linked to any app");
+    table.set_header(vec!["Database"]);
+    table.add_rows(databases_without_links.map(|d| [&d.name]));
+    println!("{table}");
+}
 
-    let mut map = HashMap::new();
+/// Print databases optionally filtering to a specifically supplied app and/or database
+fn print_databases<'a>(
+    links: Vec<Link>,
+    databases_without_links: impl Iterator<Item = &'a Database>,
+) {
+    let mut table = comfy_table::Table::new();
+    table.set_header(vec!["Database", "Links"]);
+    table.add_rows(databases_without_links.map(|d| [&d.name, "-"]));
+
+    let mut map = BTreeMap::new();
     for link in &links {
         let app_name = link.app_name();
         map.entry(&link.resource)
@@ -225,24 +293,19 @@ fn print_databases(mut databases: Vec<Database>, app: Option<String>, database: 
 fn prompt_delete_database(database: &str, links: &[ResourceLabel]) -> std::io::Result<bool> {
     let existing_links = links
         .iter()
-        .map(|l| {
-            format!(
-                "{}:{}",
-                l.app_name.as_ref().unwrap_or(&"UNKNOWN".to_string()),
-                l.label
-            )
-        })
-        .collect::<Vec<String>>()
+        .map(|l| l.app_name.as_deref().unwrap_or("UNKNOWN"))
+        .collect::<Vec<&str>>()
         .join(", ");
     let mut prompt = String::new();
     if !existing_links.is_empty() {
         // TODO: use warning color text
-        prompt.push_str(&format!("Database \"{database}\" is currently linked to the following apps: {existing_links}.\n It is recommended to use `spin cloud link sqlite `link a new database to the apps before deleting."))
+        prompt.push_str(&format!("Database \"{database}\" is currently linked to the following apps: {existing_links}.\n\
+        It is recommended to use `spin cloud link sqlite` to link to another database to those apps before deleting.\n"))
     }
-    let mut input = Input::<String>::new();
     prompt.push_str(&format!(
         "The action is irreversible. Please type \"{database}\" for confirmation"
     ));
+    let mut input = Input::<String>::new();
     input.with_prompt(prompt);
     let answer = input.interact_text()?;
     if answer != database {
