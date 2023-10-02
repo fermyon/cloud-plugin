@@ -769,7 +769,7 @@ async fn create_and_link_databases_for_existing_app(
             }
         }
     }
-    Ok(None)
+    Ok(Some(()))
 }
 
 async fn link_databases(
