@@ -926,7 +926,7 @@ checksum = "cd7cc57abe963c6d3b9d8be5b06ba7c8957a930305ca90304f24ef040aa6f961"
 
 [[package]]
 name = "cloud"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "cloud-openapi",
@@ -957,7 +957,7 @@ dependencies = [
 
 [[package]]
 name = "cloud-plugin"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
