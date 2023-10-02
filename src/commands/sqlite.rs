@@ -2,11 +2,12 @@ use crate::commands::create_cloud_client;
 use crate::commands::link::Link;
 use crate::opts::*;
 use anyhow::{Context, Result};
-use clap::{Args, Parser};
+use clap::{Args, Parser, ValueEnum};
 use cloud::client::Client as CloudClient;
 use cloud_openapi::models::Database;
 use cloud_openapi::models::ResourceLabel;
 use dialoguer::Input;
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -71,18 +72,21 @@ fn disallow_empty(statement: &str) -> anyhow::Result<String> {
 pub struct ListCommand {
     #[clap(flatten)]
     common: CommonArgs,
+    /// Filter list by an app
     #[clap(short = 'a', long = "app")]
     app: Option<String>,
+    /// Filter list by a database
     #[clap(short = 'd', long = "database")]
     database: Option<String>,
+    /// Grouping strategy of list
     #[clap(value_enum, short = 'g', long = "group-by", default_value_t = GroupBy::App)]
     group_by: GroupBy,
-    // TODO: like templates, enable multiple list formats
-    // #[clap(value_enum, long = "format", default_value = "table", hide = true)]
-    // pub format: ListFormat,
+    /// Format of list
+    #[clap(value_enum, long = "format", default_value = "table")]
+    format: ListFormat,
 }
 
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum)]
 enum GroupBy {
     App,
     Database,
@@ -107,6 +111,12 @@ impl FromStr for GroupBy {
             s => Err(format!("Unrecognized group-by option: '{s}'")),
         }
     }
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+pub enum ListFormat {
+    Table,
+    Json,
 }
 
 #[derive(Debug, Default, Args)]
@@ -214,6 +224,14 @@ impl ListCommand {
             }
         }
 
+        if matches!(self.format, ListFormat::Json) {
+            let json_vals: Vec<_> = databases.into_iter().map(json_list_format).collect();
+
+            let json_text = serde_json::to_string_pretty(&json_vals)?;
+            println!("{}", json_text);
+            return Ok(());
+        }
+
         let databases_without_links = databases.iter().filter(|db| db.links.is_empty());
 
         let mut links = databases
@@ -239,6 +257,33 @@ impl ListCommand {
         }
         Ok(())
     }
+}
+
+fn json_list_format(database: Database) -> DatabasesListJson {
+    DatabasesListJson {
+        database: database.name,
+        links: database
+            .links
+            .into_iter()
+            .map(|l| SimplifiedResourceLabel {
+                label: l.label,
+                app: l.app_name.unwrap_or("UNKNOWN".to_string()),
+            })
+            .collect(),
+    }
+}
+
+#[derive(Serialize)]
+struct DatabasesListJson {
+    database: String,
+    links: Vec<SimplifiedResourceLabel>,
+}
+
+/// A ResourceLabel type without app ID for JSON output
+#[derive(Serialize)]
+struct SimplifiedResourceLabel {
+    label: String,
+    app: String,
 }
 
 /// Print apps optionally filtering to a specifically supplied app and/or database
