@@ -11,15 +11,14 @@ use rand::Rng;
 use semver::BuildMetadata;
 use spin_common::{arg_parser::parse_kv, sloth};
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
-use spin_loader::local::config::{self, RawAppManifest};
-use spin_manifest::{ApplicationTrigger, HttpTriggerConfiguration, TriggerConfig};
+use spin_manifest::ApplicationTrigger;
 use tokio::fs;
 use tracing::instrument;
 
 use std::{
     collections::HashSet,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 use url::Url;
 use uuid::Uuid;
@@ -48,17 +47,37 @@ const SPIN_DEFAULT_KV_STORE: &str = "default";
 #[derive(Parser, Debug)]
 #[clap(about = "Package and upload an application to the Fermyon Cloud")]
 pub struct DeployCommand {
-    /// The application to deploy. This may be a manifest (spin.toml) file, or a
-    /// directory containing a spin.toml file.
+    /// The application to deploy. This may be a manifest (spin.toml) file, a
+    /// directory containing a spin.toml file, or a remote registry reference.
     /// If omitted, it defaults to "spin.toml".
     #[clap(
-        name = APP_MANIFEST_FILE_OPT,
+        name = APPLICATION_OPT,
         short = 'f',
         long = "from",
-        alias = "file",
-        default_value = DEFAULT_MANIFEST_FILE
+        group = "source",
     )]
-    pub app_source: PathBuf,
+    pub app_source: Option<String>,
+
+    /// The application to deploy. This is the same as `--from` but forces the
+    /// application to be interpreted as a file or directory path.
+    #[clap(
+        hide = true,
+        name = APP_MANIFEST_FILE_OPT,
+        long = "from-file",
+        alias = "file",
+        group = "source",
+    )]
+    pub file_source: Option<PathBuf>,
+
+    /// The application to deploy. This is the same as `--from` but forces the
+    /// application to be interpreted as an OCI registry reference.
+    #[clap(
+        hide = true,
+        name = FROM_REGISTRY_OPT,
+        long = "from-registry",
+        group = "source",
+    )]
+    pub registry_source: Option<String>,
 
     /// Disable attaching buildinfo
     #[clap(
@@ -76,7 +95,9 @@ pub struct DeployCommand {
     )]
     pub buildinfo: Option<BuildMetadata>,
 
-    /// Specifies to perform `spin build` before deploying the application.
+    /// For local apps, specifies to perform `spin build` before deploying the application.
+    ///
+    /// This is ignored on remote applications, as they are already built.
     #[clap(long, takes_value = false, env = "SPIN_ALWAYS_BUILD")]
     pub build: bool,
 
@@ -123,8 +144,41 @@ impl DeployCommand {
             .map_err(|e| anyhow!("{:?}\n\nLearn more at {}", e, DEVELOPER_CLOUD_FAQ))
     }
 
-    fn app(&self) -> anyhow::Result<PathBuf> {
-        spin_common::paths::resolve_manifest_file_path(&self.app_source)
+    fn resolve_app_source(&self) -> AppSource {
+        match (&self.app_source, &self.file_source, &self.registry_source) {
+            (None, None, None) => self.default_manifest_or_none(),
+            (Some(source), None, None) => Self::infer_source(source),
+            (None, Some(file), None) => Self::infer_file_source(file.to_owned()),
+            (None, None, Some(reference)) => AppSource::OciRegistry(reference.to_owned()),
+            _ => AppSource::unresolvable("More than one application source was specified"),
+        }
+    }
+
+    fn default_manifest_or_none(&self) -> AppSource {
+        let default_manifest = PathBuf::from(DEFAULT_MANIFEST_FILE);
+        if default_manifest.exists() {
+            AppSource::File(default_manifest)
+        } else {
+            AppSource::None
+        }
+    }
+
+    fn infer_source(source: &str) -> AppSource {
+        let path = PathBuf::from(source);
+        if path.exists() {
+            Self::infer_file_source(path)
+        } else if spin_oci::is_probably_oci_reference(source) {
+            AppSource::OciRegistry(source.to_owned())
+        } else {
+            AppSource::Unresolvable(format!("File or directory '{source}' not found. If you meant to load from a registry, use the `--from-registry` option."))
+        }
+    }
+
+    fn infer_file_source(path: impl Into<PathBuf>) -> AppSource {
+        match spin_common::paths::resolve_manifest_file_path(path.into()) {
+            Ok(file) => AppSource::File(file),
+            Err(e) => AppSource::Unresolvable(e.to_string()),
+        }
     }
 
     async fn deploy_cloud(self, login_connection: LoginConnection) -> Result<()> {
@@ -136,18 +190,6 @@ impl DeployCommand {
 
         let client = CloudClient::new(connection_config.clone());
 
-        let cfg_any = spin_loader::local::raw_manifest_from_file(&self.app()?).await?;
-        let cfg = cfg_any.into_v1();
-
-        validate_cloud_app(&cfg)?;
-        self.validate_deployment_environment(&cfg, &client).await?;
-
-        match cfg.info.trigger {
-            ApplicationTrigger::Http(_) => {}
-            ApplicationTrigger::Redis(_) => bail!("Redis triggers are not supported"),
-            ApplicationTrigger::External(_) => bail!("External triggers are not supported"),
-        }
-
         let buildinfo = if !self.no_buildinfo {
             match &self.buildinfo {
                 Some(i) => Some(i.clone()),
@@ -157,9 +199,13 @@ impl DeployCommand {
             None
         };
 
-        let app_file = spin_common::paths::resolve_manifest_file_path(&self.app_source)?;
         let dir = tempfile::tempdir()?;
-        let application = spin_loader::local::from_file(&app_file, Some(dir.path())).await?;
+
+        let application = self.load_cloud_app(dir.path()).await?;
+
+        validate_cloud_app(&application)?;
+        self.validate_deployment_environment(&application, &client)
+            .await?;
 
         // TODO: can remove once spin_oci inlines small files by default
         std::env::set_var("SPIN_OCI_SKIP_INLINED_FILES", "true");
@@ -172,12 +218,14 @@ impl DeployCommand {
             )
             .await?;
 
-        let name = sanitize_app_name(&application.info.name);
+        let name = sanitize_app_name(application.name()?);
         let storage_id = format!("oci://{}", name);
         let version = sanitize_app_version(
-            &(application.info.version
-                + "-"
-                + &buildinfo.clone().context("Cannot parse build info")?),
+            &(format!(
+                "{}-{}",
+                application.version()?,
+                buildinfo.clone().context("Cannot parse build info")?
+            )),
         );
 
         println!("Deploying...");
@@ -185,7 +233,7 @@ impl DeployCommand {
         // Create or update app
         let channel_id = match get_app_id_cloud(&client, &name).await? {
             Some(app_id) => {
-                let labels = sqlite_labels_used(&cfg);
+                let labels = application.sqlite_databases();
                 if !labels.is_empty()
                     && create_and_link_databases_for_existing_app(&client, &name, app_id, labels)
                         .await?
@@ -230,7 +278,7 @@ impl DeployCommand {
                 existing_channel_id
             }
             None => {
-                let labels = sqlite_labels_used(&cfg);
+                let labels = application.sqlite_databases();
                 let databases_to_link =
                     match create_databases_for_new_app(&client, &name, labels).await? {
                         Some(dbs) => dbs,
@@ -283,7 +331,8 @@ impl DeployCommand {
             .await
             .context("Problem getting channel by id")?;
         let app_base_url = build_app_base_url(&channel.domain, &login_connection.url)?;
-        if let Ok(http_config) = HttpTriggerConfiguration::try_from(cfg.info.trigger.clone()) {
+        let (http_base, http_routes) = application.http_routes();
+        if !http_routes.is_empty() {
             wait_for_ready(
                 &app_base_url,
                 &digest.unwrap_or_default(),
@@ -291,7 +340,8 @@ impl DeployCommand {
                 Destination::Cloud(connection_config.clone().url),
             )
             .await;
-            print_available_routes(&app_base_url, &http_config.base, &cfg);
+            let base = http_base.unwrap_or_else(|| "/".to_owned());
+            print_available_routes(&app_base_url, &base, &http_routes);
         } else {
             println!("Application is running at {}", channel.domain);
         }
@@ -299,19 +349,72 @@ impl DeployCommand {
         Ok(())
     }
 
+    async fn load_cloud_app(&self, working_dir: &Path) -> Result<DeployableApp, anyhow::Error> {
+        let app_source = self.resolve_app_source();
+
+        match &app_source {
+            AppSource::File(app_file) => {
+                let cfg_any = spin_loader::local::raw_manifest_from_file(&app_file).await?;
+                let cfg = cfg_any.into_v1();
+
+                match cfg.info.trigger {
+                    ApplicationTrigger::Http(_) => {}
+                    ApplicationTrigger::Redis(_) => bail!("Redis triggers are not supported"),
+                    ApplicationTrigger::External(_) => bail!("External triggers are not supported"),
+                }
+
+                let app = spin_loader::from_file(app_file, Some(working_dir)).await?;
+                let locked_app = spin_trigger::locked::build_locked_app(app, working_dir)?;
+
+                Ok(DeployableApp(locked_app))
+            }
+            AppSource::OciRegistry(reference) => {
+                let mut oci_client = spin_oci::Client::new(false, None)
+                    .await
+                    .context("cannot create registry client")?;
+
+                let locked_app = spin_oci::OciLoader::new(working_dir)
+                    .load_app(&mut oci_client, reference)
+                    .await?;
+
+                let unsupported_triggers = locked_app
+                    .triggers
+                    .iter()
+                    .filter(|t| t.trigger_type != "http")
+                    .map(|t| format!("'{}'", t.trigger_type))
+                    .collect::<Vec<_>>();
+                if !unsupported_triggers.is_empty() {
+                    bail!(
+                        "Non-HTTP triggers are not supported - app uses {}",
+                        unsupported_triggers.join(", ")
+                    );
+                }
+
+                Ok(DeployableApp(locked_app))
+            }
+            AppSource::None => {
+                anyhow::bail!("Default file '{DEFAULT_MANIFEST_FILE}' not found.");
+            }
+            AppSource::Unresolvable(err) => {
+                anyhow::bail!("{err}");
+            }
+        }
+    }
+
     async fn validate_deployment_environment(
         &self,
-        app: &RawAppManifest,
+        app: &DeployableApp,
         client: &CloudClient,
     ) -> Result<()> {
         let required_variables = app
+            .0
             .variables
             .iter()
-            .filter(|(_, v)| v.required)
+            .filter(|(_, v)| v.default.is_none())
             .map(|(k, _)| k)
             .collect::<HashSet<_>>();
         if !required_variables.is_empty() {
-            self.ensure_variables_present(&required_variables, client, &app.info.name)
+            self.ensure_variables_present(&required_variables, client, app.name()?)
                 .await?;
         }
         Ok(())
@@ -440,7 +543,7 @@ impl DeployCommand {
 
     async fn push_oci(
         &self,
-        application: spin_manifest::Application,
+        application: DeployableApp,
         buildinfo: Option<BuildMetadata>,
         connection_config: ConnectionConfig,
     ) -> Result<Option<String>> {
@@ -458,17 +561,15 @@ impl DeployCommand {
                 format!(
                     "{}/{}:{}",
                     cloud_registry_host,
-                    &sanitize_app_name(&application.info.name),
-                    &sanitize_app_version(
-                        &(application.info.version.to_owned() + "-" + &buildinfo),
-                    )
+                    &sanitize_app_name(application.name()?),
+                    &sanitize_app_version(&(application.version()?.to_owned() + "-" + &buildinfo),)
                 )
             }
             None => {
                 format!(
                     "{}/{}",
                     cloud_registry_host,
-                    &sanitize_app_name(&application.info.name)
+                    &sanitize_app_name(application.name()?)
                 )
             }
         };
@@ -487,28 +588,50 @@ impl DeployCommand {
         println!(
             "Uploading {} version {} to Fermyon Cloud...",
             &oci_ref.repository(),
-            &oci_ref.tag().unwrap_or(&application.info.version)
+            &oci_ref.tag().unwrap_or(application.version()?)
         );
-        let digest = client.push(&application, reference).await?;
+        let digest = client.push_locked(application.0, reference).await?;
 
         Ok(digest)
     }
 
     async fn run_spin_build(&self) -> Result<()> {
-        let manifest_path = self.app()?;
-        let spin_bin = spin::bin_path()?;
+        self.resolve_app_source().build().await
+    }
+}
 
-        let result = tokio::process::Command::new(spin_bin)
-            .args(["build", "-f"])
-            .arg(&manifest_path)
-            .status()
-            .await
-            .context("Failed to execute `spin build` command")?;
+#[derive(Debug, PartialEq, Eq)]
+enum AppSource {
+    None,
+    File(PathBuf),
+    OciRegistry(String),
+    Unresolvable(String),
+}
 
-        if result.success() {
-            Ok(())
-        } else {
-            Err(anyhow!("Build failed: deployment cancelled"))
+impl AppSource {
+    fn unresolvable(message: impl Into<String>) -> Self {
+        Self::Unresolvable(message.into())
+    }
+
+    async fn build(&self) -> anyhow::Result<()> {
+        match self {
+            Self::File(manifest_path) => {
+                let spin_bin = spin::bin_path()?;
+
+                let result = tokio::process::Command::new(spin_bin)
+                    .args(["build", "-f"])
+                    .arg(manifest_path)
+                    .status()
+                    .await
+                    .context("Failed to execute `spin build` command")?;
+
+                if result.success() {
+                    Ok(())
+                } else {
+                    Err(anyhow!("Build failed: deployment cancelled"))
+                }
+            }
+            _ => Ok(()),
         }
     }
 }
@@ -556,18 +679,16 @@ fn sanitize_app_version(tag: &str) -> String {
     sanitized.replace(' ', "")
 }
 
-fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
-    check_safe_app_name(&app.info.name)?;
-    ensure!(!app.components.is_empty(), "No components in spin.toml!");
-    for component in &app.components {
+fn validate_cloud_app(app: &DeployableApp) -> Result<()> {
+    check_safe_app_name(app.name()?)?;
+    ensure!(!app.components().is_empty(), "No components in spin.toml!");
+    for component in app.components() {
         if let Some(invalid_store) = component
-            .wasm
-            .key_value_stores
+            .key_value_stores()
             .iter()
-            .flatten()
             .find(|store| *store != SPIN_DEFAULT_KV_STORE)
         {
-            bail!("Invalid store {invalid_store:?} for component {:?}. Cloud currently supports only the 'default' store.", component.id);
+            bail!("Invalid store {invalid_store:?} for component {:?}. Cloud currently supports only the 'default' store.", component.id());
         }
     }
     Ok(())
@@ -691,15 +812,6 @@ Other apps can use different labels to refer to the same database."#
     Ok(DatabaseSelection::New(name))
 }
 
-fn sqlite_labels_used(cfg: &config::RawAppManifestImpl<TriggerConfig>) -> Vec<String> {
-    cfg.components
-        .iter()
-        .cloned()
-        .filter_map(|c| c.wasm.sqlite_databases)
-        .flatten()
-        .collect()
-}
-
 // Loops through an app's manifest and creates databases.
 // Returns a list of database and label pairs that should be
 // linked to the app once it is created.
@@ -783,6 +895,127 @@ async fn link_databases(
             })?;
     }
     Ok(())
+}
+
+#[derive(Clone)]
+struct DeployableApp(spin_app::locked::LockedApp);
+
+struct DeployableComponent(spin_app::locked::LockedComponent);
+
+impl DeployableApp {
+    fn name(&self) -> anyhow::Result<&str> {
+        self.0
+            .metadata
+            .get("name")
+            .ok_or(anyhow!("Application has no name"))?
+            .as_str()
+            .ok_or(anyhow!("Application name is not a string"))
+    }
+
+    fn version(&self) -> anyhow::Result<&str> {
+        self.0
+            .metadata
+            .get("version")
+            .ok_or(anyhow!("Application has no version"))?
+            .as_str()
+            .ok_or(anyhow!("Application version is not a string"))
+    }
+
+    fn components(&self) -> Vec<DeployableComponent> {
+        self.0
+            .components
+            .iter()
+            .map(|c| DeployableComponent(c.clone()))
+            .collect()
+    }
+
+    fn sqlite_databases(&self) -> Vec<String> {
+        self.components()
+            .iter()
+            .flat_map(|c| c.sqlite_databases())
+            .collect()
+    }
+
+    fn http_routes(&self) -> (Option<String>, Vec<HttpRoute>) {
+        let base = self
+            .0
+            .metadata
+            .get("trigger")
+            .and_then(|v| v.get("base"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_owned());
+        let routes = self
+            .0
+            .triggers
+            .iter()
+            .filter_map(|t| self.http_route(t))
+            .collect();
+        (base, routes)
+    }
+
+    fn http_route(&self, trigger: &spin_app::locked::LockedTrigger) -> Option<HttpRoute> {
+        if &trigger.trigger_type != "http" {
+            return None;
+        }
+
+        let Some(id) = trigger
+            .trigger_config
+            .get("component")
+            .and_then(|v| v.as_str())
+        else {
+            return None;
+        };
+
+        let description = self.component_description(id).map(|s| s.to_owned());
+        let route = trigger.trigger_config.get("route").and_then(|v| v.as_str());
+        route.map(|r| HttpRoute {
+            id: id.to_owned(),
+            description,
+            route_pattern: r.to_owned(),
+        })
+    }
+
+    fn component_description(&self, id: &str) -> Option<&str> {
+        self.0
+            .components
+            .iter()
+            .find(|c| c.id == id)
+            .and_then(|c| c.metadata.get("description").and_then(|v| v.as_str()))
+    }
+}
+
+#[derive(Debug)]
+struct HttpRoute {
+    id: String,
+    description: Option<String>,
+    route_pattern: String,
+}
+
+impl DeployableComponent {
+    fn id(&self) -> &str {
+        &self.0.id
+    }
+
+    fn key_value_stores(&self) -> Vec<String> {
+        self.metadata_vec_string("key_value_stores")
+    }
+
+    fn sqlite_databases(&self) -> Vec<String> {
+        self.metadata_vec_string("databases")
+    }
+
+    fn metadata_vec_string(&self, key: &str) -> Vec<String> {
+        let Some(raw) = self.0.metadata.get(key) else {
+            return vec![];
+        };
+        let Some(arr) = raw.as_array() else {
+            return vec![];
+        };
+        arr.iter()
+            .filter_map(|v| v.as_str())
+            .map(|s| s.to_owned())
+            .collect()
+    }
 }
 
 fn random_buildinfo() -> BuildMetadata {
@@ -896,12 +1129,8 @@ async fn is_ready(app_info_url: &str, expected_version: &str) -> Result<bool> {
     Ok(true)
 }
 
-fn print_available_routes(
-    app_base_url: &Url,
-    base: &str,
-    cfg: &spin_loader::local::config::RawAppManifest,
-) {
-    if cfg.components.is_empty() {
+fn print_available_routes(app_base_url: &Url, base: &str, routes: &[HttpRoute]) {
+    if routes.is_empty() {
         return;
     }
 
@@ -910,13 +1139,11 @@ fn print_available_routes(
     let route_prefix = app_base_url.strip_suffix('/').unwrap_or(&app_base_url);
 
     println!("Available Routes:");
-    for component in &cfg.components {
-        if let TriggerConfig::Http(http_cfg) = &component.trigger {
-            let route = RoutePattern::from(base, &http_cfg.route);
-            println!("  {}: {}{}", component.id, route_prefix, route);
-            if let Some(description) = &component.description {
-                println!("    {}", description);
-            }
+    for component in routes {
+        let route = RoutePattern::from(base, &component.route_pattern);
+        println!("  {}: {}{}", component.id, route_prefix, route);
+        if let Some(description) = &component.description {
+            println!("    {}", description);
         }
     }
 }
