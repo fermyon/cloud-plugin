@@ -43,7 +43,6 @@ use super::sqlite::database_has_link;
 
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
-const SPIN_DEFAULT_DATABASE: &str = "default";
 
 /// Package and upload an application to the Fermyon Cloud.
 #[derive(Parser, Debug)]
@@ -569,16 +568,6 @@ fn validate_cloud_app(app: &RawAppManifest) -> Result<()> {
             .find(|store| *store != SPIN_DEFAULT_KV_STORE)
         {
             bail!("Invalid store {invalid_store:?} for component {:?}. Cloud currently supports only the 'default' store.", component.id);
-        }
-
-        if let Some(invalid_db) = component
-            .wasm
-            .sqlite_databases
-            .iter()
-            .flatten()
-            .find(|db| *db != SPIN_DEFAULT_DATABASE)
-        {
-            bail!("Invalid database {invalid_db:?} for component {:?}. Cloud currently supports only the 'default' SQLite databases.", component.id);
         }
     }
     Ok(())
