@@ -12,7 +12,7 @@ use std::str::FromStr;
 
 /// Manage Fermyon Cloud NoOps SQL databases
 #[derive(Parser, Debug)]
-#[clap(about = "Manage Fermyon Cloud SQLite databases")]
+#[clap(about = "Manage Fermyon Cloud NoOps SQL databases")]
 pub enum SqliteCommand {
     /// Create a NoOps SQL database
     Create(CreateCommand),

@@ -9,7 +9,7 @@ use crate::opts::*;
 /// Manage how apps and resources are linked together
 #[derive(Parser, Debug)]
 pub enum LinkCommand {
-    /// Link an app to a sqlite database
+    /// Link an app to a NoOps SQL database
     Sqlite(SqliteLinkCommand),
 }
 
@@ -18,12 +18,11 @@ pub struct SqliteLinkCommand {
     #[clap(flatten)]
     common: CommonArgs,
     /// The name by which the application will refer to the database
-    // TODO: validate label syntax
     label: String,
     #[clap(short = 'a', long = "app")]
     /// The app that will be using the database
     app: String,
-    /// The database that the app will be referring to by the label
+    /// The database that the app will refer to by the label
     #[clap(short = 'd', long = "database")]
     database: String,
 }
@@ -108,10 +107,10 @@ impl SqliteLinkCommand {
     }
 }
 
-/// Manage how apps and resources are linked together
+/// Manage unlinking apps and resources
 #[derive(Parser, Debug)]
 pub enum UnlinkCommand {
-    /// Link an app to a sqlite database
+    /// Unlink an app from a NoOps SQL database
     Sqlite(SqliteUnlinkCommand),
 }
 
