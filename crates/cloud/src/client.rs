@@ -15,7 +15,7 @@ use cloud_openapi::{
         sql_databases_api::{
             api_sql_databases_create_post, api_sql_databases_database_links_delete,
             api_sql_databases_database_links_post, api_sql_databases_delete,
-            api_sql_databases_execute_post, api_sql_databases_get,
+            api_sql_databases_execute_post, api_sql_databases_get, api_sql_databases_rename_post,
         },
         variable_pairs_api::{
             api_variable_pairs_delete, api_variable_pairs_get, api_variable_pairs_post,
@@ -28,7 +28,8 @@ use cloud_openapi::{
         CreateSqlDatabaseCommand, CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand,
         DeleteVariablePairCommand, DeviceCodeItem, EnvironmentVariableItem,
         ExecuteSqlStatementCommand, GetChannelLogsVm, GetSqlDatabasesQuery, GetVariablesQuery,
-        RefreshTokenCommand, RegisterRevisionCommand, ResourceLabel, RevisionItemPage, TokenInfo,
+        RefreshTokenCommand, RegisterRevisionCommand, RenameSqlDatabaseCommand, ResourceLabel,
+        RevisionItemPage, TokenInfo,
     },
 };
 use reqwest::header;
@@ -471,6 +472,16 @@ impl Client {
         api_sql_databases_database_links_delete(&self.configuration, database, resource_label, None)
             .await
             .map_err(format_response_error)
+    }
+
+    pub async fn rename_database(&self, database: String, new_name: String) -> anyhow::Result<()> {
+        api_sql_databases_rename_post(
+            &self.configuration,
+            RenameSqlDatabaseCommand { database, new_name },
+            None,
+        )
+        .await
+        .map_err(format_response_error)
     }
 }
 
