@@ -242,29 +242,23 @@ impl ListCommand {
 }
 
 /// Print apps optionally filtering to a specifically supplied app and/or database
-fn print_apps<'a>(links: Vec<Link>, databases_without_links: impl Iterator<Item = &'a Database>) {
+fn print_apps<'a>(
+    mut links: Vec<Link>,
+    databases_without_links: impl Iterator<Item = &'a Database>,
+) {
+    links.sort_by(|l1, l2| l1.app_name().cmp(l2.app_name()));
+
     let mut table = comfy_table::Table::new();
     table.set_header(vec!["App", "Label", "Database"]);
 
-    let mut map = BTreeMap::new();
-    for link in &links {
-        let app_name = link.app_name();
-        let key = format!(
-            "{}-{}{}",
-            link.resource, app_name, link.resource_label.label
-        );
-        map.insert(key, {
-            [
-                app_name,
-                link.resource_label.label.as_str(),
-                link.resource.as_str(),
-            ]
-        });
-    }
-    table.add_rows(
-        map.iter()
-            .map(|(_, [app_name, label, database])| [app_name, label, database]),
-    );
+    let rows = links.iter().map(|link| {
+        [
+            link.app_name(),
+            link.resource_label.label.as_str(),
+            link.resource.as_str(),
+        ]
+    });
+    table.add_rows(rows);
     println!("{table}");
 
     let mut databases_without_links = databases_without_links.peekable();
@@ -281,9 +275,11 @@ fn print_apps<'a>(links: Vec<Link>, databases_without_links: impl Iterator<Item 
 
 /// Print databases optionally filtering to a specifically supplied app and/or database
 fn print_databases<'a>(
-    links: Vec<Link>,
+    mut links: Vec<Link>,
     databases_without_links: impl Iterator<Item = &'a Database>,
 ) {
+    links.sort_by(|l1, l2| l1.resource.cmp(&l2.resource));
+
     let mut table = comfy_table::Table::new();
     table.set_header(vec!["Database", "Links"]);
     table.add_rows(databases_without_links.map(|d| [&d.name, "-"]));
