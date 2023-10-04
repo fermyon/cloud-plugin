@@ -14,8 +14,8 @@ use cloud_openapi::{
         revisions_api::{api_revisions_get, api_revisions_post},
         sql_databases_api::{
             api_sql_databases_create_post, api_sql_databases_database_links_delete,
-            api_sql_databases_database_links_post, api_sql_databases_delete,
-            api_sql_databases_execute_post, api_sql_databases_get,
+            api_sql_databases_database_links_post, api_sql_databases_database_rename_patch,
+            api_sql_databases_delete, api_sql_databases_execute_post, api_sql_databases_get,
         },
         variable_pairs_api::{
             api_variable_pairs_delete, api_variable_pairs_get, api_variable_pairs_post,
@@ -469,6 +469,12 @@ impl Client {
         resource_label: ResourceLabel,
     ) -> anyhow::Result<()> {
         api_sql_databases_database_links_delete(&self.configuration, database, resource_label, None)
+            .await
+            .map_err(format_response_error)
+    }
+
+    pub async fn rename_database(&self, database: String, new_name: String) -> anyhow::Result<()> {
+        api_sql_databases_database_rename_patch(&self.configuration, &database, &new_name, None)
             .await
             .map_err(format_response_error)
     }

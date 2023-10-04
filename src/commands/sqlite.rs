@@ -24,6 +24,8 @@ pub enum SqliteCommand {
     Execute(ExecuteCommand),
     /// List all NoOps SQL databases of a user
     List(ListCommand),
+    /// Rename a NoOps SQL database
+    Rename(RenameCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -57,6 +59,18 @@ pub struct ExecuteCommand {
     ///Statement to execute
     #[clap(value_parser = clap::builder::ValueParser::new(disallow_empty))]
     statement: String,
+
+    #[clap(flatten)]
+    common: CommonArgs,
+}
+
+#[derive(Parser, Debug)]
+pub struct RenameCommand {
+    /// Current name of database to rename
+    name: String,
+
+    /// New name for the database
+    new_name: String,
 
     #[clap(flatten)]
     common: CommonArgs,
@@ -140,6 +154,7 @@ impl SqliteCommand {
             Self::Delete(cmd) => cmd.run().await,
             Self::Execute(cmd) => cmd.run().await,
             Self::List(cmd) => cmd.run().await,
+            Self::Rename(cmd) => cmd.run().await,
         }
     }
 }
@@ -302,6 +317,27 @@ struct DatabasesListJson<'a> {
 struct ResourceLabelJson<'a> {
     label: &'a str,
     app: &'a str,
+}
+
+impl RenameCommand {
+    pub async fn run(self) -> Result<()> {
+        let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
+        let list = CloudClient::get_databases(&client, None)
+            .await
+            .context("Problem fetching databases")?;
+        let found = list.iter().find(|d| d.name == self.name);
+        if found.is_none() {
+            anyhow::bail!("No database found with name \"{}\"", self.name);
+        }
+        client
+            .rename_database(self.name.clone(), self.new_name.clone())
+            .await?;
+        println!(
+            "Database \"{}\" is now named \"{}\"",
+            self.name, self.new_name
+        );
+        Ok(())
+    }
 }
 
 /// Print apps optionally filtering to a specifically supplied app and/or database
