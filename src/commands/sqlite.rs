@@ -1,12 +1,14 @@
 use crate::commands::create_cloud_client;
 use crate::commands::link::Link;
 use crate::opts::*;
+use anyhow::bail;
 use anyhow::{Context, Result};
-use clap::{Args, Parser};
+use clap::{Args, Parser, ValueEnum};
 use cloud::client::Client as CloudClient;
 use cloud_openapi::models::Database;
 use cloud_openapi::models::ResourceLabel;
 use dialoguer::Input;
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -71,19 +73,23 @@ fn disallow_empty(statement: &str) -> anyhow::Result<String> {
 pub struct ListCommand {
     #[clap(flatten)]
     common: CommonArgs,
+    /// Filter list by an app
     #[clap(short = 'a', long = "app")]
     app: Option<String>,
+    /// Filter list by a database
     #[clap(short = 'd', long = "database")]
     database: Option<String>,
-    #[clap(value_enum, short = 'g', long = "group-by", default_value_t = GroupBy::App)]
-    group_by: GroupBy,
-    // TODO: like templates, enable multiple list formats
-    // #[clap(value_enum, long = "format", default_value = "table", hide = true)]
-    // pub format: ListFormat,
+    /// Grouping strategy of tabular list [default: app]
+    #[clap(value_enum, short = 'g', long = "group-by")]
+    group_by: Option<GroupBy>,
+    /// Format of list
+    #[clap(value_enum, long = "format", default_value = "table")]
+    format: ListFormat,
 }
 
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
 enum GroupBy {
+    #[default]
     App,
     Database,
 }
@@ -107,6 +113,12 @@ impl FromStr for GroupBy {
             s => Err(format!("Unrecognized group-by option: '{s}'")),
         }
     }
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+pub enum ListFormat {
+    Table,
+    Json,
 }
 
 #[derive(Debug, Default, Args)]
@@ -196,6 +208,10 @@ impl ExecuteCommand {
 
 impl ListCommand {
     pub async fn run(self) -> Result<()> {
+        if let (ListFormat::Json, Some(_)) = (&self.format, self.group_by) {
+            bail!("Grouping is not supported with JSON format output")
+        }
+
         let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
         let mut databases = client
             .get_databases(None)
@@ -214,6 +230,27 @@ impl ListCommand {
             }
         }
 
+        match self.format {
+            ListFormat::Json => self.print_json(databases),
+            ListFormat::Table => self.print_table(databases),
+        }
+    }
+
+    fn print_json(&self, mut databases: Vec<Database>) -> Result<()> {
+        if let Some(app) = &self.app {
+            databases.retain(|d| {
+                d.links
+                    .iter()
+                    .any(|l| l.app_name.as_deref().unwrap_or("UNKNOWN") == app)
+            });
+        }
+        let json_vals: Vec<_> = databases.iter().map(json_list_format).collect();
+        let json_text = serde_json::to_string_pretty(&json_vals)?;
+        println!("{}", json_text);
+        Ok(())
+    }
+
+    fn print_table(&self, databases: Vec<Database>) -> Result<()> {
         let databases_without_links = databases.iter().filter(|db| db.links.is_empty());
 
         let mut links = databases
@@ -232,13 +269,39 @@ impl ListCommand {
                 return Ok(());
             }
         }
-
-        match self.group_by {
+        match self.group_by.unwrap_or_default() {
             GroupBy::App => print_apps(links, databases_without_links),
             GroupBy::Database => print_databases(links, databases_without_links),
         }
         Ok(())
     }
+}
+
+fn json_list_format(database: &Database) -> DatabasesListJson<'_> {
+    DatabasesListJson {
+        database: &database.name,
+        links: database
+            .links
+            .iter()
+            .map(|l| ResourceLabelJson {
+                label: &l.label,
+                app: l.app_name.as_deref().unwrap_or("UNKNOWN"),
+            })
+            .collect(),
+    }
+}
+
+#[derive(Serialize)]
+struct DatabasesListJson<'a> {
+    database: &'a str,
+    links: Vec<ResourceLabelJson<'a>>,
+}
+
+/// A ResourceLabel type without app ID for JSON output
+#[derive(Serialize)]
+struct ResourceLabelJson<'a> {
+    label: &'a str,
+    app: &'a str,
 }
 
 /// Print apps optionally filtering to a specifically supplied app and/or database
