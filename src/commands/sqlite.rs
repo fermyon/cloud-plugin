@@ -242,7 +242,12 @@ impl ListCommand {
 }
 
 /// Print apps optionally filtering to a specifically supplied app and/or database
-fn print_apps<'a>(links: Vec<Link>, databases_without_links: impl Iterator<Item = &'a Database>) {
+fn print_apps<'a>(
+    mut links: Vec<Link>,
+    databases_without_links: impl Iterator<Item = &'a Database>,
+) {
+    links.sort_by(|l1, l2| l1.app_name().cmp(l2.app_name()));
+
     let mut table = comfy_table::Table::new();
     table.set_header(vec!["App", "Label", "Database"]);
 
@@ -270,9 +275,11 @@ fn print_apps<'a>(links: Vec<Link>, databases_without_links: impl Iterator<Item 
 
 /// Print databases optionally filtering to a specifically supplied app and/or database
 fn print_databases<'a>(
-    links: Vec<Link>,
+    mut links: Vec<Link>,
     databases_without_links: impl Iterator<Item = &'a Database>,
 ) {
+    links.sort_by(|l1, l2| l1.resource.cmp(&l2.resource));
+
     let mut table = comfy_table::Table::new();
     table.set_header(vec!["Database", "Links"]);
     table.add_rows(databases_without_links.map(|d| [&d.name, "-"]));
