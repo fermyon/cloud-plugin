@@ -7,6 +7,7 @@ use clap::{Args, Parser, ValueEnum};
 use cloud::client::Client as CloudClient;
 use cloud_openapi::models::Database;
 use cloud_openapi::models::ResourceLabel;
+use comfy_table::presets::ASCII_BORDERS_ONLY_CONDENSED;
 use dialoguer::Input;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -348,6 +349,7 @@ fn print_apps<'a>(
     links.sort_by(|l1, l2| l1.app_name().cmp(l2.app_name()));
 
     let mut table = comfy_table::Table::new();
+    table.load_preset(ASCII_BORDERS_ONLY_CONDENSED);
     table.set_header(vec!["App", "Label", "Database"]);
 
     let rows = links.iter().map(|link| {
@@ -380,6 +382,7 @@ fn print_databases<'a>(
     links.sort_by(|l1, l2| l1.resource.cmp(&l2.resource));
 
     let mut table = comfy_table::Table::new();
+    table.load_preset(ASCII_BORDERS_ONLY_CONDENSED);
     table.set_header(vec!["Database", "Links"]);
     table.add_rows(databases_without_links.map(|d| [&d.name, "-"]));
 
