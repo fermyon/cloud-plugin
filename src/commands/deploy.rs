@@ -819,7 +819,7 @@ Other apps can use different labels to refer to the same database."#
 async fn create_databases_for_new_app(
     client: &CloudClient,
     name: &str,
-    labels: Vec<String>,
+    labels: HashSet<String>,
 ) -> anyhow::Result<Option<Vec<(String, String)>>> {
     let mut databases_to_link = Vec::new();
     for label in labels {
@@ -843,7 +843,7 @@ async fn create_and_link_databases_for_existing_app(
     client: &CloudClient,
     app_name: &str,
     app_id: Uuid,
-    labels: Vec<String>,
+    labels: HashSet<String>,
 ) -> anyhow::Result<Option<()>> {
     for label in labels {
         let resource_label = ResourceLabel {
@@ -929,7 +929,7 @@ impl DeployableApp {
             .collect()
     }
 
-    fn sqlite_databases(&self) -> Vec<String> {
+    fn sqlite_databases(&self) -> HashSet<String> {
         self.components()
             .iter()
             .flat_map(|c| c.sqlite_databases())
