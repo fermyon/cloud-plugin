@@ -25,6 +25,9 @@ pub struct SqliteLinkCommand {
     /// The database that the app will refer to by the label
     #[clap(short = 'd', long = "database")]
     database: String,
+    /// Accept defaults for all prompted terminal interactions
+    #[clap(long = "accept-defaults", takes_value = false)]
+    pub accept_defaults: bool,
 }
 
 #[derive(Debug, Default, Args)]
@@ -93,11 +96,12 @@ impl SqliteLinkCommand {
                     link.resource,
                     self.database,
                 );
-                if dialoguer::Confirm::new()
-                    .with_prompt(prompt)
-                    .default(false)
-                    .interact_opt()?
-                    .unwrap_or_default()
+                if !self.accept_defaults
+                    && dialoguer::Confirm::new()
+                        .with_prompt(prompt)
+                        .default(false)
+                        .interact_opt()?
+                        .unwrap_or_default()
                 {
                     // TODO: use a relink API to remove any downtime
                     CloudClient::remove_database_link(&client, &link.resource, link.resource_label)

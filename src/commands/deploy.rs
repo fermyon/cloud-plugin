@@ -127,6 +127,10 @@ pub struct DeployCommand {
     /// Can be used multiple times.
     #[clap(long = "variable", parse(try_from_str = parse_kv))]
     pub variables: Vec<(String, String)>,
+
+    /// Accept defaults for all prompted terminal interactions
+    #[clap(long = "accept-defaults", takes_value = false)]
+    pub accept_defaults: bool,
 }
 
 impl DeployCommand {
@@ -235,9 +239,15 @@ impl DeployCommand {
             Some(app_id) => {
                 let labels = application.sqlite_databases();
                 if !labels.is_empty()
-                    && create_and_link_databases_for_existing_app(&client, &name, app_id, labels)
-                        .await?
-                        .is_none()
+                    && create_and_link_databases_for_existing_app(
+                        &client,
+                        &name,
+                        app_id,
+                        labels,
+                        self.accept_defaults,
+                    )
+                    .await?
+                    .is_none()
                 {
                     // User canceled terminal interaction
                     return Ok(());
@@ -279,11 +289,17 @@ impl DeployCommand {
             }
             None => {
                 let labels = application.sqlite_databases();
-                let databases_to_link =
-                    match create_databases_for_new_app(&client, &name, labels).await? {
-                        Some(dbs) => dbs,
-                        None => return Ok(()), // User canceled terminal interaction
-                    };
+                let databases_to_link = match create_databases_for_new_app(
+                    &client,
+                    &name,
+                    labels,
+                    self.accept_defaults,
+                )
+                .await?
+                {
+                    Some(dbs) => dbs,
+                    None => return Ok(()), // User canceled terminal interaction
+                };
 
                 let app_id = CloudClient::add_app(&client, &name, &storage_id)
                     .await
@@ -707,10 +723,23 @@ enum ExistingAppDatabaseSelection {
     AlreadyLinked,
 }
 
+impl DatabaseSelection {
+    /// Returns the default DatabaseSelection, a new database with a random name
+    /// that is unique from the given list of names.
+    fn default_and_unique(existing_names: HashSet<&str>) -> Result<DatabaseSelection> {
+        let generator = RandomNameGenerator::new();
+        let default_name = generator
+            .generate_unique(existing_names, 20)
+            .context("could not generate unique database name")?;
+        Ok(DatabaseSelection::New(default_name))
+    }
+}
+
 async fn get_database_selection_for_existing_app(
     name: &str,
     client: &CloudClient,
     resource_label: &ResourceLabel,
+    accept_defaults: bool,
 ) -> Result<ExistingAppDatabaseSelection> {
     let databases = client.get_databases(None).await?;
     if databases
@@ -719,7 +748,15 @@ async fn get_database_selection_for_existing_app(
     {
         return Ok(ExistingAppDatabaseSelection::AlreadyLinked);
     }
-    let selection = prompt_database_selection(name, &resource_label.label, databases)?;
+    let selection = match accept_defaults {
+        true => DatabaseSelection::default_and_unique(
+            databases
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<HashSet<&str>>(),
+        )?,
+        false => prompt_database_selection(name, &resource_label.label, databases)?,
+    };
     Ok(ExistingAppDatabaseSelection::NotYetLinked(selection))
 }
 
@@ -727,9 +764,18 @@ async fn get_database_selection_for_new_app(
     name: &str,
     client: &CloudClient,
     label: &str,
+    accept_defaults: bool,
 ) -> Result<DatabaseSelection> {
     let databases = client.get_databases(None).await?;
-    prompt_database_selection(name, label, databases)
+    match accept_defaults {
+        true => DatabaseSelection::default_and_unique(
+            databases
+                .iter()
+                .map(|d| d.name.as_ref())
+                .collect::<HashSet<&str>>(),
+        ),
+        false => prompt_database_selection(name, label, databases),
+    }
 }
 
 fn prompt_database_selection(
@@ -820,10 +866,13 @@ async fn create_databases_for_new_app(
     client: &CloudClient,
     name: &str,
     labels: HashSet<String>,
+    accept_defaults: bool,
 ) -> anyhow::Result<Option<Vec<(String, String)>>> {
     let mut databases_to_link = Vec::new();
     for label in labels {
-        let db = match get_database_selection_for_new_app(name, client, &label).await? {
+        let db = match get_database_selection_for_new_app(name, client, &label, accept_defaults)
+            .await?
+        {
             DatabaseSelection::Existing(db) => db,
             DatabaseSelection::New(db) => {
                 client.create_database(db.clone(), None).await?;
@@ -844,6 +893,7 @@ async fn create_and_link_databases_for_existing_app(
     app_name: &str,
     app_id: Uuid,
     labels: HashSet<String>,
+    accept_defaults: bool,
 ) -> anyhow::Result<Option<()>> {
     for label in labels {
         let resource_label = ResourceLabel {
@@ -852,7 +902,13 @@ async fn create_and_link_databases_for_existing_app(
             app_name: Some(app_name.to_string()),
         };
         if let ExistingAppDatabaseSelection::NotYetLinked(selection) =
-            get_database_selection_for_existing_app(app_name, client, &resource_label).await?
+            get_database_selection_for_existing_app(
+                app_name,
+                client,
+                &resource_label,
+                accept_defaults,
+            )
+            .await?
         {
             match selection {
                 // User canceled terminal interaction
