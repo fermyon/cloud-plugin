@@ -72,6 +72,10 @@ impl SqliteLinkCommand {
         let existing_link_for_other_database = other_dbs
             .iter()
             .find_map(|d| find_database_link(d, &self.label));
+        let success_msg = format!(
+            r#"Database "{}" is now linked to app "{}" with the label "{}""#,
+            self.database, self.app, self.label
+        );
         match (existing_link_for_database, existing_link_for_other_database) {
             (Some(link), _) => {
                 anyhow::bail!(
@@ -82,18 +86,35 @@ impl SqliteLinkCommand {
                 );
             }
             (_, Some(link)) => {
-                anyhow::bail!(
-                    r#"Database "{}" is already linked to app "{}" with label "{}""#,
-                    link.resource,
+                let prompt = format!(
+                    r#"App "{}"'s "{}" label is currently linked to "{}". Change to link to database "{}" instead?"#,
                     link.app_name(),
                     link.resource_label.label,
+                    link.resource,
+                    self.database,
                 );
+                if dialoguer::Confirm::new()
+                    .with_prompt(prompt)
+                    .default(false)
+                    .interact_opt()?
+                    .unwrap_or_default()
+                {
+                    // TODO: use a relink API to remove any downtime
+                    CloudClient::remove_database_link(&client, &link.resource, link.resource_label)
+                        .await?;
+                    let resource_label = ResourceLabel {
+                        app_id,
+                        label: self.label,
+                        app_name: None,
+                    };
+                    CloudClient::create_database_link(&client, &self.database, resource_label)
+                        .await?;
+                    println!("{success_msg}");
+                } else {
+                    println!("The link has not been updated");
+                }
             }
             (None, None) => {
-                let success_msg = format!(
-                    "Database '{}' is now linked to app '{}' with the label '{}'",
-                    self.database, self.app, self.label
-                );
                 let resource_label = ResourceLabel {
                     app_id,
                     label: self.label,
