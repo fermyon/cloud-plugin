@@ -4,7 +4,7 @@ To cut a new release of the Cloud plugin, you will need to do the following:
 
 1. Confirm that [CI is green](https://fermyon/cloud-plugin/actions) for the commit selected to be tagged and released.
 
-1. Change the version number in [Cargo.toml](./Cargo.toml) and run `cargo build --release`.
+1. Change the version number in [Cargo.toml](./Cargo.toml) and [spin-pluginify.toml](./spin-pluginify.toml) and run `cargo build --release`.
 
 1. Create a pull request with these changes and merge once approved.
 
