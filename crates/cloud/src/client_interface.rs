@@ -1,4 +1,3 @@
-use crate::client::ConnectionConfig;
 use anyhow::Result;
 use async_trait::async_trait;
 use cloud_openapi::models::{
@@ -6,10 +5,12 @@ use cloud_openapi::models::{
     DeviceCodeItem, EnvironmentVariableItem, GetChannelLogsVm, ResourceLabel, RevisionItemPage,
     TokenInfo,
 };
+use mockall::*;
 
 use std::string::String;
 use uuid::Uuid;
 
+#[automock]
 #[async_trait]
 pub trait CloudClientInterface {
     async fn create_device_code(&self, client_id: Uuid) -> Result<DeviceCodeItem>;
