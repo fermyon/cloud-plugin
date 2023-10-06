@@ -2,6 +2,7 @@ use crate::commands::{client_and_app_id, create_cloud_client};
 use crate::opts::*;
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
+use cloud::CloudClientInterface;
 use cloud_openapi::models::{AppItem, AppItemPage, ValidationStatus};
 
 #[derive(Parser, Debug)]

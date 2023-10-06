@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
-use cloud::client::Client as CloudClient;
+use cloud::{client::Client as CloudClient, CloudClientInterface};
 use serde::Deserialize;
 use serde_json::from_str;
 use spin_common::arg_parser::parse_kv;

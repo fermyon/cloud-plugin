@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
 use cloud::client::Client as CloudClient;
+use cloud::CloudClientInterface;
 use cloud_openapi::models::{Database, ResourceLabel};
 
 use crate::commands::{client_and_app_id, sqlite::find_database_link};

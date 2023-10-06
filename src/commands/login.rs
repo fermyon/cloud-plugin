@@ -3,7 +3,10 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use cloud::client::{Client, ConnectionConfig};
+use cloud::{
+    client::{Client, ConnectionConfig},
+    CloudClientInterface,
+};
 use cloud_openapi::models::DeviceCodeItem;
 use cloud_openapi::models::TokenInfo;
 use serde::Deserialize;

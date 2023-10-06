@@ -4,7 +4,7 @@ use crate::opts::*;
 use anyhow::bail;
 use anyhow::{Context, Result};
 use clap::{Args, Parser, ValueEnum};
-use cloud::client::Client as CloudClient;
+use cloud::{client::Client as CloudClient, CloudClientInterface};
 use cloud_openapi::models::Database;
 use cloud_openapi::models::ResourceLabel;
 use comfy_table::presets::ASCII_BORDERS_ONLY_CONDENSED;

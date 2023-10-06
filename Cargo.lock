@@ -692,6 +692,7 @@ name = "cloud"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "cloud-openapi",
  "mime_guess",
  "reqwest",
