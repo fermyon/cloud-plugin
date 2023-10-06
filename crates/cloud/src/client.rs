@@ -52,6 +52,43 @@ pub struct ConnectionConfig {
     pub url: String,
 }
 
+impl Client {
+    pub fn new(conn_info: ConnectionConfig) -> Self {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(header::ACCEPT, JSON_MIME_TYPE.parse().unwrap());
+        headers.insert(header::CONTENT_TYPE, JSON_MIME_TYPE.parse().unwrap());
+
+        let base_path = match conn_info.url.strip_suffix('/') {
+            Some(s) => s.to_owned(),
+            None => conn_info.url,
+        };
+
+        let configuration = Configuration {
+            base_path,
+            user_agent: Some(format!(
+                "{}/{} spin/{}",
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                std::env::var("SPIN_VERSION").unwrap_or_else(|_| "0".to_string())
+            )),
+            client: reqwest::Client::builder()
+                .danger_accept_invalid_certs(conn_info.insecure)
+                .default_headers(headers)
+                .build()
+                .unwrap(),
+            basic_auth: None,
+            oauth_access_token: None,
+            bearer_access_token: None,
+            api_key: Some(ApiKey {
+                prefix: Some("Bearer".to_owned()),
+                key: conn_info.token,
+            }),
+        };
+
+        Self { configuration }
+    }
+}
+
 #[async_trait]
 impl CloudClientInterface for Client {
     async fn create_device_code(&self, client_id: Uuid) -> Result<DeviceCodeItem> {
@@ -446,43 +483,6 @@ impl CloudClientInterface for Client {
         api_sql_databases_database_rename_patch(&self.configuration, &database, &new_name, None)
             .await
             .map_err(format_response_error)
-    }
-}
-
-impl Client {
-    pub fn new(conn_info: ConnectionConfig) -> Self {
-        let mut headers = header::HeaderMap::new();
-        headers.insert(header::ACCEPT, JSON_MIME_TYPE.parse().unwrap());
-        headers.insert(header::CONTENT_TYPE, JSON_MIME_TYPE.parse().unwrap());
-
-        let base_path = match conn_info.url.strip_suffix('/') {
-            Some(s) => s.to_owned(),
-            None => conn_info.url,
-        };
-
-        let configuration = Configuration {
-            base_path,
-            user_agent: Some(format!(
-                "{}/{} spin/{}",
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION"),
-                std::env::var("SPIN_VERSION").unwrap_or_else(|_| "0".to_string())
-            )),
-            client: reqwest::Client::builder()
-                .danger_accept_invalid_certs(conn_info.insecure)
-                .default_headers(headers)
-                .build()
-                .unwrap(),
-            basic_auth: None,
-            oauth_access_token: None,
-            bearer_access_token: None,
-            api_key: Some(ApiKey {
-                prefix: Some("Bearer".to_owned()),
-                key: conn_info.token,
-            }),
-        };
-
-        Self { configuration }
     }
 }
 
