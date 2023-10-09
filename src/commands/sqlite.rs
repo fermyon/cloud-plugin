@@ -465,14 +465,13 @@ mod sqlite_tests {
             Database::new("db1".to_string(), vec![]),
             Database::new("db2".to_string(), vec![]),
         ];
-        mock.expect_get_databases()
-            .returning(move |_| Ok(dbs.to_owned()));
+        mock.expect_get_databases().return_once(move |_| Ok(dbs));
 
         let result = command.run(mock).await;
-        match result {
-            Ok(_) => panic!("Expected error"),
-            Err(err) => assert_eq!(err.to_string(), r#"Database "db1" already exists"#),
-        }
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            r#"Database "db1" already exists"#
+        );
         Ok(())
     }
 
@@ -484,8 +483,7 @@ mod sqlite_tests {
             common: Default::default(),
         };
         let dbs = vec![Database::new("db2".to_string(), vec![])];
-        mock.expect_get_databases()
-            .returning(move |_| Ok(dbs.to_owned()));
+        mock.expect_get_databases().return_once(move |_| Ok(dbs));
         mock.expect_create_database()
             .withf(move |db, rl| db == "db1" && rl.is_none())
             .returning(|_, _| Ok(()));
@@ -503,10 +501,10 @@ mod sqlite_tests {
         mock.expect_get_databases().returning(move |_| Ok(vec![]));
 
         let result = command.run(mock).await;
-        match result {
-            Ok(_) => panic!("Expected error"),
-            Err(err) => assert_eq!(err.to_string(), r#"No database found with name "db1""#),
-        }
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            r#"No database found with name "db1""#
+        );
         Ok(())
     }
 

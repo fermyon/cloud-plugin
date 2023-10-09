@@ -54,20 +54,18 @@ impl LinkCommand {
 
 impl SqliteLinkCommand {
     async fn link(self, client: impl CloudClientInterface, app_id: Uuid) -> Result<()> {
-        let database = client
+        let databases = client
             .get_databases(None)
             .await
-            .context("could not fetch databases")?
-            .into_iter()
-            .find(|d| d.name == self.database);
+            .context("could not fetch databases")?;
+        let database = databases.iter().find(|d| d.name == self.database);
         if database.is_none() {
             anyhow::bail!(r#"Database "{}" does not exist"#, self.database)
         }
-
-        let databases_for_app = client
-            .get_databases(Some(app_id))
-            .await
-            .context("Problem listing links")?;
+        let databases_for_app = databases
+            .into_iter()
+            .filter(|d| d.links.iter().any(|l| l.app_id == app_id))
+            .collect::<Vec<Database>>();
         let (this_db, other_dbs): (Vec<&Database>, Vec<&Database>) = databases_for_app
             .iter()
             .partition(|d| d.name == self.database);
@@ -235,17 +233,13 @@ mod link_tests {
             Database::new("db1".to_string(), vec![]),
             Database::new("db2".to_string(), vec![]),
         ];
-        mock.expect_get_databases()
-            .returning(move |_| Ok(dbs.to_owned()));
+        mock.expect_get_databases().return_once(move |_| Ok(dbs));
 
         let result = command.link(mock, app_id).await;
-        match result {
-            Ok(_) => panic!("Expected error"),
-            Err(err) => assert_eq!(
-                err.to_string(),
-                r#"Database "does-not-exist" does not exist"#
-            ),
-        }
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            r#"Database "does-not-exist" does not exist"#
+        );
         Ok(())
     }
 
@@ -263,8 +257,7 @@ mod link_tests {
             Database::new("db1".to_string(), vec![]),
             Database::new("db2".to_string(), vec![]),
         ];
-        mock.expect_get_databases()
-            .returning(move |_| Ok(dbs.to_owned()));
+        mock.expect_get_databases().return_once(move |_| Ok(dbs));
         let expected_resource_label = ResourceLabel {
             app_id,
             label: command.label.clone(),
@@ -297,16 +290,12 @@ mod link_tests {
             ),
             Database::new("db2".to_string(), vec![]),
         ];
-        mock.expect_get_databases()
-            .returning(move |_| Ok(dbs.to_owned()));
+        mock.expect_get_databases().return_once(move |_| Ok(dbs));
         let result = command.link(mock, app_id).await;
-        match result {
-            Ok(_) => panic!("Expected error"),
-            Err(err) => assert_eq!(
-                err.to_string(),
-                r#"Database "db1" is already linked to app "app" with the label "label""#
-            ),
-        }
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            r#"Database "db1" is already linked to app "app" with the label "label""#
+        );
         Ok(())
     }
 
