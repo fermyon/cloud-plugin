@@ -221,7 +221,6 @@ mod link_tests {
     use cloud::MockCloudClientInterface;
     #[tokio::test]
     async fn test_sqlite_link_error_database_does_not_exist() -> Result<()> {
-        let mut mock = MockCloudClientInterface::new();
         let command = SqliteLinkCommand {
             app: "app".to_string(),
             database: "does-not-exist".to_string(),
@@ -233,6 +232,8 @@ mod link_tests {
             Database::new("db1".to_string(), vec![]),
             Database::new("db2".to_string(), vec![]),
         ];
+
+        let mut mock = MockCloudClientInterface::new();
         mock.expect_get_databases().return_once(move |_| Ok(dbs));
 
         let result = command.link(mock, app_id).await;
@@ -244,8 +245,7 @@ mod link_tests {
     }
 
     #[tokio::test]
-    async fn test_sqlite_link_success() -> Result<()> {
-        let mut mock = MockCloudClientInterface::new();
+    async fn test_sqlite_link_succeeds_when_database_exists() -> Result<()> {
         let command = SqliteLinkCommand {
             app: "app".to_string(),
             database: "db1".to_string(),
@@ -257,21 +257,23 @@ mod link_tests {
             Database::new("db1".to_string(), vec![]),
             Database::new("db2".to_string(), vec![]),
         ];
-        mock.expect_get_databases().return_once(move |_| Ok(dbs));
         let expected_resource_label = ResourceLabel {
             app_id,
             label: command.label.clone(),
             app_name: None,
         };
+
+        let mut mock = MockCloudClientInterface::new();
+        mock.expect_get_databases().return_once(move |_| Ok(dbs));
         mock.expect_create_database_link()
             .withf(move |db, rl| db == "db1" && rl == &expected_resource_label)
             .returning(|_, _| Ok(()));
+
         command.link(mock, app_id).await
     }
 
     #[tokio::test]
-    async fn test_sqlite_link_error_link_exists() -> Result<()> {
-        let mut mock = MockCloudClientInterface::new();
+    async fn test_sqlite_link_errors_when_link_already_exists() -> Result<()> {
         let command = SqliteLinkCommand {
             app: "app".to_string(),
             database: "db1".to_string(),
@@ -290,8 +292,11 @@ mod link_tests {
             ),
             Database::new("db2".to_string(), vec![]),
         ];
+
+        let mut mock = MockCloudClientInterface::new();
         mock.expect_get_databases().return_once(move |_| Ok(dbs));
         let result = command.link(mock, app_id).await;
+
         assert_eq!(
             result.unwrap_err().to_string(),
             r#"Database "db1" is already linked to app "app" with the label "label""#
@@ -299,6 +304,6 @@ mod link_tests {
         Ok(())
     }
 
-    // TODO: add test for test_sqlite_link_error_link_exists_different_database() once
-    // there is a flag to avoid prompts
+    // TODO: add test test_sqlite_link_errors_when_link_exists_with_different_database()
+    // once there is a flag to avoid prompts
 }

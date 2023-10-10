@@ -168,7 +168,7 @@ impl SqliteCommand {
 
 impl CreateCommand {
     pub async fn run(self, client: impl CloudClientInterface) -> Result<()> {
-        let list: Vec<Database> = client
+        let list = client
             .get_databases(None)
             .await
             .context("Problem fetching databases")?;
@@ -455,8 +455,7 @@ mod sqlite_tests {
     use cloud::MockCloudClientInterface;
 
     #[tokio::test]
-    async fn test_create_error_already_exists() -> Result<()> {
-        let mut mock = MockCloudClientInterface::new();
+    async fn test_create_if_db_already_exists_then_error() -> Result<()> {
         let command = CreateCommand {
             name: "db1".to_string(),
             common: Default::default(),
@@ -465,6 +464,8 @@ mod sqlite_tests {
             Database::new("db1".to_string(), vec![]),
             Database::new("db2".to_string(), vec![]),
         ];
+
+        let mut mock = MockCloudClientInterface::new();
         mock.expect_get_databases().return_once(move |_| Ok(dbs));
 
         let result = command.run(mock).await;
@@ -476,28 +477,31 @@ mod sqlite_tests {
     }
 
     #[tokio::test]
-    async fn test_create_success() -> Result<()> {
-        let mut mock = MockCloudClientInterface::new();
+    async fn test_create_if_db_does_not_exist_db_is_created() -> Result<()> {
         let command = CreateCommand {
             name: "db1".to_string(),
             common: Default::default(),
         };
         let dbs = vec![Database::new("db2".to_string(), vec![])];
+
+        let mut mock = MockCloudClientInterface::new();
         mock.expect_get_databases().return_once(move |_| Ok(dbs));
         mock.expect_create_database()
             .withf(move |db, rl| db == "db1" && rl.is_none())
             .returning(|_, _| Ok(()));
+
         command.run(mock).await
     }
 
     #[tokio::test]
-    async fn test_delete_error_does_not_exist() -> Result<()> {
-        let mut mock = MockCloudClientInterface::new();
+    async fn test_delete_if_db_does_not_exist_then_error() -> Result<()> {
         let command = DeleteCommand {
             name: "db1".to_string(),
             common: Default::default(),
             yes: true,
         };
+
+        let mut mock = MockCloudClientInterface::new();
         mock.expect_get_databases().returning(move |_| Ok(vec![]));
 
         let result = command.run(mock).await;
@@ -509,16 +513,18 @@ mod sqlite_tests {
     }
 
     #[tokio::test]
-    async fn test_delete_success() -> Result<()> {
-        let mut mock = MockCloudClientInterface::new();
+    async fn test_delete_if_db_exists_then_it_is_deleted() -> Result<()> {
         let command = DeleteCommand {
             name: "db1".to_string(),
             common: Default::default(),
             yes: true,
         };
+
+        let mut mock = MockCloudClientInterface::new();
         mock.expect_get_databases()
             .returning(move |_| Ok(vec![Database::new("db1".to_string(), vec![])]));
         mock.expect_delete_database().returning(|_| Ok(()));
+
         command.run(mock).await
     }
 }
