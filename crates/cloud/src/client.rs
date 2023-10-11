@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use cloud_openapi::{
     apis::{
         self,
@@ -35,6 +36,8 @@ use reqwest::header;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
+
+use crate::CloudClientInterface;
 
 const JSON_MIME_TYPE: &str = "application/json";
 
@@ -84,8 +87,11 @@ impl Client {
 
         Self { configuration }
     }
+}
 
-    pub async fn create_device_code(&self, client_id: Uuid) -> Result<DeviceCodeItem> {
+#[async_trait]
+impl CloudClientInterface for Client {
+    async fn create_device_code(&self, client_id: Uuid) -> Result<DeviceCodeItem> {
         api_device_codes_post(
             &self.configuration,
             CreateDeviceCodeCommand { client_id },
@@ -95,7 +101,7 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn login(&self, token: String) -> Result<TokenInfo> {
+    async fn login(&self, token: String) -> Result<TokenInfo> {
         // When the new OpenAPI specification is released, manually crafting
         // the request should no longer be necessary.
         let response = self
@@ -119,7 +125,7 @@ impl Client {
             .context("Failed to parse response")
     }
 
-    pub async fn refresh_token(&self, token: String, refresh_token: String) -> Result<TokenInfo> {
+    async fn refresh_token(&self, token: String, refresh_token: String) -> Result<TokenInfo> {
         api_auth_tokens_refresh_post(
             &self.configuration,
             RefreshTokenCommand {
@@ -132,7 +138,7 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn add_app(&self, name: &str, storage_id: &str) -> Result<Uuid> {
+    async fn add_app(&self, name: &str, storage_id: &str) -> Result<Uuid> {
         api_apps_post(
             &self.configuration,
             CreateAppCommand {
@@ -146,19 +152,19 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn remove_app(&self, id: String) -> Result<()> {
+    async fn remove_app(&self, id: String) -> Result<()> {
         api_apps_id_delete(&self.configuration, &id, None)
             .await
             .map_err(format_response_error)
     }
 
-    pub async fn get_app(&self, id: String) -> Result<AppItem> {
+    async fn get_app(&self, id: String) -> Result<AppItem> {
         api_apps_id_get(&self.configuration, &id, None)
             .await
             .map_err(format_response_error)
     }
 
-    pub async fn list_apps(&self, page_size: i32, page_index: Option<i32>) -> Result<AppItemPage> {
+    async fn list_apps(&self, page_size: i32, page_index: Option<i32>) -> Result<AppItemPage> {
         api_apps_get(
             &self.configuration,
             None,
@@ -172,13 +178,13 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn get_channel_by_id(&self, id: &str) -> Result<ChannelItem> {
+    async fn get_channel_by_id(&self, id: &str) -> Result<ChannelItem> {
         api_channels_id_get(&self.configuration, id, None)
             .await
             .map_err(format_response_error)
     }
 
-    pub async fn list_channels(&self) -> Result<ChannelItemPage> {
+    async fn list_channels(&self) -> Result<ChannelItemPage> {
         api_channels_get(
             &self.configuration,
             Some(""),
@@ -192,7 +198,7 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn list_channels_next(&self, previous: &ChannelItemPage) -> Result<ChannelItemPage> {
+    async fn list_channels_next(&self, previous: &ChannelItemPage) -> Result<ChannelItemPage> {
         api_channels_get(
             &self.configuration,
             Some(""),
@@ -206,7 +212,7 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn add_channel(
+    async fn add_channel(
         &self,
         app_id: Uuid,
         name: String,
@@ -226,7 +232,7 @@ impl Client {
             .map_err(format_response_error)
     }
 
-    pub async fn patch_channel(
+    async fn patch_channel(
         &self,
         id: Uuid,
         name: Option<String>,
@@ -290,19 +296,19 @@ impl Client {
         }
     }
 
-    pub async fn remove_channel(&self, id: String) -> Result<()> {
+    async fn remove_channel(&self, id: String) -> Result<()> {
         api_channels_id_delete(&self.configuration, &id, None)
             .await
             .map_err(format_response_error)
     }
 
-    pub async fn channel_logs(&self, id: String) -> Result<GetChannelLogsVm> {
+    async fn channel_logs(&self, id: String) -> Result<GetChannelLogsVm> {
         api_channels_id_logs_get(&self.configuration, &id, None, None)
             .await
             .map_err(format_response_error)
     }
 
-    pub async fn add_revision(
+    async fn add_revision(
         &self,
         app_storage_id: String,
         revision_number: String,
@@ -319,13 +325,13 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn list_revisions(&self) -> anyhow::Result<RevisionItemPage> {
+    async fn list_revisions(&self) -> anyhow::Result<RevisionItemPage> {
         api_revisions_get(&self.configuration, None, None, None, None)
             .await
             .map_err(format_response_error)
     }
 
-    pub async fn list_revisions_next(
+    async fn list_revisions_next(
         &self,
         previous: &RevisionItemPage,
     ) -> anyhow::Result<RevisionItemPage> {
@@ -340,7 +346,7 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn add_key_value_pair(
+    async fn add_key_value_pair(
         &self,
         app_id: Uuid,
         store_name: String,
@@ -361,7 +367,7 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn add_variable_pair(
+    async fn add_variable_pair(
         &self,
         app_id: Uuid,
         variable: String,
@@ -380,7 +386,7 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn delete_variable_pair(&self, app_id: Uuid, variable: String) -> anyhow::Result<()> {
+    async fn delete_variable_pair(&self, app_id: Uuid, variable: String) -> anyhow::Result<()> {
         api_variable_pairs_delete(
             &self.configuration,
             DeleteVariablePairCommand { app_id, variable },
@@ -390,14 +396,14 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn get_variable_pairs(&self, app_id: Uuid) -> anyhow::Result<Vec<String>> {
+    async fn get_variable_pairs(&self, app_id: Uuid) -> anyhow::Result<Vec<String>> {
         let list = api_variable_pairs_get(&self.configuration, GetVariablesQuery { app_id }, None)
             .await
             .map_err(format_response_error)?;
         Ok(list.vars)
     }
 
-    pub async fn create_database(
+    async fn create_database(
         &self,
         name: String,
         resource_label: Option<ResourceLabel>,
@@ -419,7 +425,7 @@ impl Client {
         .map_err(format_response_error)
     }
 
-    pub async fn execute_sql(&self, database: String, statement: String) -> anyhow::Result<()> {
+    async fn execute_sql(&self, database: String, statement: String) -> anyhow::Result<()> {
         api_sql_databases_execute_post(
             &self.configuration,
             ExecuteSqlStatementCommand {
@@ -434,13 +440,13 @@ impl Client {
         Ok(())
     }
 
-    pub async fn delete_database(&self, name: String) -> anyhow::Result<()> {
+    async fn delete_database(&self, name: String) -> anyhow::Result<()> {
         api_sql_databases_delete(&self.configuration, DeleteSqlDatabaseCommand { name }, None)
             .await
             .map_err(format_response_error)
     }
 
-    pub async fn get_databases(&self, app_id: Option<Uuid>) -> anyhow::Result<Vec<Database>> {
+    async fn get_databases(&self, app_id: Option<Uuid>) -> anyhow::Result<Vec<Database>> {
         let list = api_sql_databases_get(
             &self.configuration,
             GetSqlDatabasesQuery {
@@ -453,7 +459,7 @@ impl Client {
         Ok(list.databases)
     }
 
-    pub async fn create_database_link(
+    async fn create_database_link(
         &self,
         database: &str,
         resource_label: ResourceLabel,
@@ -463,7 +469,7 @@ impl Client {
             .map_err(format_response_error)
     }
 
-    pub async fn remove_database_link(
+    async fn remove_database_link(
         &self,
         database: &str,
         resource_label: ResourceLabel,
@@ -473,7 +479,7 @@ impl Client {
             .map_err(format_response_error)
     }
 
-    pub async fn rename_database(&self, database: String, new_name: String) -> anyhow::Result<()> {
+    async fn rename_database(&self, database: String, new_name: String) -> anyhow::Result<()> {
         api_sql_databases_database_rename_patch(&self.configuration, &database, &new_name, None)
             .await
             .map_err(format_response_error)
@@ -511,36 +517,23 @@ fn format_response_error<T>(e: Error<T>) -> anyhow::Error {
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
-pub struct PatchChannelCommand {
+struct PatchChannelCommand {
     #[serde(rename = "channelId", skip_serializing_if = "Option::is_none")]
-    pub channel_id: Option<uuid::Uuid>,
+    channel_id: Option<uuid::Uuid>,
     #[serde(
         rename = "environmentVariables",
         skip_serializing_if = "Option::is_none"
     )]
-    pub environment_variables: Option<Vec<EnvironmentVariableItem>>,
+    environment_variables: Option<Vec<EnvironmentVariableItem>>,
     #[serde(rename = "name", skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    name: Option<String>,
     #[serde(
         rename = "revisionSelectionStrategy",
         skip_serializing_if = "Option::is_none"
     )]
-    pub revision_selection_strategy: Option<ChannelRevisionSelectionStrategy>,
+    revision_selection_strategy: Option<ChannelRevisionSelectionStrategy>,
     #[serde(rename = "rangeRule", skip_serializing_if = "Option::is_none")]
-    pub range_rule: Option<String>,
+    range_rule: Option<String>,
     #[serde(rename = "activeRevisionId", skip_serializing_if = "Option::is_none")]
-    pub active_revision_id: Option<uuid::Uuid>,
-}
-
-impl PatchChannelCommand {
-    pub fn new() -> PatchChannelCommand {
-        PatchChannelCommand {
-            channel_id: None,
-            environment_variables: None,
-            name: None,
-            revision_selection_strategy: None,
-            range_rule: None,
-            active_revision_id: None,
-        }
-    }
+    active_revision_id: Option<uuid::Uuid>,
 }

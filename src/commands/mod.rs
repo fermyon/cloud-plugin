@@ -7,7 +7,10 @@ pub mod variables;
 
 use crate::{commands::deploy::login_connection, opts::DEFAULT_APPLIST_PAGE_SIZE};
 use anyhow::{Context, Result};
-use cloud::client::{Client as CloudClient, ConnectionConfig};
+use cloud::{
+    client::{Client as CloudClient, ConnectionConfig},
+    CloudClientInterface,
+};
 use uuid::Uuid;
 
 pub(crate) async fn create_cloud_client(deployment_env_id: Option<&str>) -> Result<CloudClient> {

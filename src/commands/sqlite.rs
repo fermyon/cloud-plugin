@@ -4,7 +4,7 @@ use crate::opts::*;
 use anyhow::bail;
 use anyhow::{Context, Result};
 use clap::{Args, Parser, ValueEnum};
-use cloud::client::Client as CloudClient;
+use cloud::CloudClientInterface;
 use cloud_openapi::models::Database;
 use cloud_openapi::models::ResourceLabel;
 use comfy_table::presets::ASCII_BORDERS_ONLY_CONDENSED;
@@ -151,8 +151,14 @@ struct CommonArgs {
 impl SqliteCommand {
     pub async fn run(self) -> Result<()> {
         match self {
-            Self::Create(cmd) => cmd.run().await,
-            Self::Delete(cmd) => cmd.run().await,
+            Self::Create(cmd) => {
+                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
+                cmd.run(client).await
+            }
+            Self::Delete(cmd) => {
+                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
+                cmd.run(client).await
+            }
             Self::Execute(cmd) => cmd.run().await,
             Self::List(cmd) => cmd.run().await,
             Self::Rename(cmd) => cmd.run().await,
@@ -161,15 +167,16 @@ impl SqliteCommand {
 }
 
 impl CreateCommand {
-    pub async fn run(self) -> Result<()> {
-        let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
-        let list = CloudClient::get_databases(&client, None)
+    pub async fn run(self, client: impl CloudClientInterface) -> Result<()> {
+        let list = client
+            .get_databases(None)
             .await
             .context("Problem fetching databases")?;
         if list.iter().any(|d| d.name == self.name) {
-            anyhow::bail!("Database {} already exists", self.name)
+            anyhow::bail!(r#"Database "{}" already exists"#, self.name)
         }
-        CloudClient::create_database(&client, self.name.clone(), None)
+        client
+            .create_database(self.name.clone(), None)
             .await
             .with_context(|| format!("Problem creating database {}", self.name))?;
         println!("Database \"{}\" created", self.name);
@@ -178,9 +185,9 @@ impl CreateCommand {
 }
 
 impl DeleteCommand {
-    pub async fn run(self) -> Result<()> {
-        let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
-        let list = CloudClient::get_databases(&client, None)
+    pub async fn run(self, client: impl CloudClientInterface) -> Result<()> {
+        let list = client
+            .get_databases(None)
             .await
             .context("Problem fetching databases")?;
         let found = list.iter().find(|d| d.name == self.name);
@@ -189,7 +196,8 @@ impl DeleteCommand {
             Some(db) => {
                 // TODO: Fail if apps exist that are currently using a database
                 if self.yes || prompt_delete_database(&self.name, &db.links)? {
-                    CloudClient::delete_database(&client, self.name.clone())
+                    client
+                        .delete_database(self.name.clone())
                         .await
                         .with_context(|| format!("Problem deleting database {}", self.name))?;
                     println!("Database \"{}\" deleted", self.name);
@@ -203,7 +211,8 @@ impl DeleteCommand {
 impl ExecuteCommand {
     pub async fn run(self) -> Result<()> {
         let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
-        let list = CloudClient::get_databases(&client, None)
+        let list = client
+            .get_databases(None)
             .await
             .context("Problem fetching databases")?;
         if !list.iter().any(|d| d.name == self.name) {
@@ -215,7 +224,8 @@ impl ExecuteCommand {
         } else {
             self.statement
         };
-        CloudClient::execute_sql(&client, self.name, statement)
+        client
+            .execute_sql(self.name, statement)
             .await
             .context("Problem executing SQL")?;
         Ok(())
@@ -323,7 +333,8 @@ struct ResourceLabelJson<'a> {
 impl RenameCommand {
     pub async fn run(self) -> Result<()> {
         let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
-        let list = CloudClient::get_databases(&client, None)
+        let list = client
+            .get_databases(None)
             .await
             .context("Problem fetching databases")?;
         let found = list.iter().find(|d| d.name == self.name);
@@ -436,4 +447,84 @@ pub fn find_database_link(db: &Database, label: &str) -> Option<Link> {
 
 pub fn database_has_link(db: &Database, link: &ResourceLabel) -> bool {
     db.links.iter().any(|l| l == link)
+}
+
+#[cfg(test)]
+mod sqlite_tests {
+    use super::*;
+    use cloud::MockCloudClientInterface;
+
+    #[tokio::test]
+    async fn test_create_if_db_already_exists_then_error() -> Result<()> {
+        let command = CreateCommand {
+            name: "db1".to_string(),
+            common: Default::default(),
+        };
+        let dbs = vec![
+            Database::new("db1".to_string(), vec![]),
+            Database::new("db2".to_string(), vec![]),
+        ];
+
+        let mut mock = MockCloudClientInterface::new();
+        mock.expect_get_databases().return_once(move |_| Ok(dbs));
+
+        let result = command.run(mock).await;
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            r#"Database "db1" already exists"#
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_create_if_db_does_not_exist_db_is_created() -> Result<()> {
+        let command = CreateCommand {
+            name: "db1".to_string(),
+            common: Default::default(),
+        };
+        let dbs = vec![Database::new("db2".to_string(), vec![])];
+
+        let mut mock = MockCloudClientInterface::new();
+        mock.expect_get_databases().return_once(move |_| Ok(dbs));
+        mock.expect_create_database()
+            .withf(move |db, rl| db == "db1" && rl.is_none())
+            .returning(|_, _| Ok(()));
+
+        command.run(mock).await
+    }
+
+    #[tokio::test]
+    async fn test_delete_if_db_does_not_exist_then_error() -> Result<()> {
+        let command = DeleteCommand {
+            name: "db1".to_string(),
+            common: Default::default(),
+            yes: true,
+        };
+
+        let mut mock = MockCloudClientInterface::new();
+        mock.expect_get_databases().returning(move |_| Ok(vec![]));
+
+        let result = command.run(mock).await;
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            r#"No database found with name "db1""#
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_delete_if_db_exists_then_it_is_deleted() -> Result<()> {
+        let command = DeleteCommand {
+            name: "db1".to_string(),
+            common: Default::default(),
+            yes: true,
+        };
+
+        let mut mock = MockCloudClientInterface::new();
+        mock.expect_get_databases()
+            .returning(move |_| Ok(vec![Database::new("db1".to_string(), vec![])]));
+        mock.expect_delete_database().returning(|_| Ok(()));
+
+        command.run(mock).await
+    }
 }

@@ -1,7 +1,10 @@
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use cloud::client::{Client as CloudClient, ConnectionConfig};
+use cloud::{
+    client::{Client as CloudClient, ConnectionConfig},
+    CloudClientInterface,
+};
 use cloud_openapi::models::{
     ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy, Database,
     ResourceLabel,
@@ -242,35 +245,32 @@ impl DeployCommand {
                     // User canceled terminal interaction
                     return Ok(());
                 }
-                CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
+                client
+                    .add_revision(storage_id.clone(), version.clone())
+                    .await?;
                 let existing_channel_id = self
                     .get_channel_id_cloud(&client, SPIN_DEPLOY_CHANNEL_NAME.to_string(), app_id)
                     .await?;
                 let active_revision_id = self
                     .get_revision_id_cloud(&client, version.clone(), app_id)
                     .await?;
-                CloudClient::patch_channel(
-                    &client,
-                    existing_channel_id,
-                    None,
-                    Some(CloudChannelRevisionSelectionStrategy::UseSpecifiedRevision),
-                    None,
-                    Some(active_revision_id),
-                    None,
-                )
-                .await
-                .context("Problem patching a channel")?;
-
-                for kv in self.key_values {
-                    CloudClient::add_key_value_pair(
-                        &client,
-                        app_id,
-                        SPIN_DEFAULT_KV_STORE.to_string(),
-                        kv.0,
-                        kv.1,
+                client
+                    .patch_channel(
+                        existing_channel_id,
+                        None,
+                        Some(CloudChannelRevisionSelectionStrategy::UseSpecifiedRevision),
+                        None,
+                        Some(active_revision_id),
+                        None,
                     )
                     .await
-                    .context("Problem creating key/value")?;
+                    .context("Problem patching a channel")?;
+
+                for kv in self.key_values {
+                    client
+                        .add_key_value_pair(app_id, SPIN_DEFAULT_KV_STORE.to_string(), kv.0, kv.1)
+                        .await
+                        .context("Problem creating key/value")?;
                 }
 
                 set_variables(&client, app_id, &self.variables).await?;
@@ -285,40 +285,38 @@ impl DeployCommand {
                         None => return Ok(()), // User canceled terminal interaction
                     };
 
-                let app_id = CloudClient::add_app(&client, &name, &storage_id)
+                let app_id = client
+                    .add_app(&name, &storage_id)
                     .await
                     .context("Unable to create app")?;
 
                 // Now that the app has been created, we can link databases to it.
                 link_databases(&client, name, app_id, databases_to_link).await?;
 
-                CloudClient::add_revision(&client, storage_id.clone(), version.clone()).await?;
+                client
+                    .add_revision(storage_id.clone(), version.clone())
+                    .await?;
 
                 let active_revision_id = self
                     .get_revision_id_cloud(&client, version.clone(), app_id)
                     .await?;
 
-                let channel_id = CloudClient::add_channel(
-                    &client,
-                    app_id,
-                    String::from(SPIN_DEPLOY_CHANNEL_NAME),
-                    CloudChannelRevisionSelectionStrategy::UseSpecifiedRevision,
-                    None,
-                    Some(active_revision_id),
-                )
-                .await
-                .context("Problem creating a channel")?;
-
-                for kv in self.key_values {
-                    CloudClient::add_key_value_pair(
-                        &client,
+                let channel_id = client
+                    .add_channel(
                         app_id,
-                        SPIN_DEFAULT_KV_STORE.to_string(),
-                        kv.0,
-                        kv.1,
+                        String::from(SPIN_DEPLOY_CHANNEL_NAME),
+                        CloudChannelRevisionSelectionStrategy::UseSpecifiedRevision,
+                        None,
+                        Some(active_revision_id),
                     )
                     .await
-                    .context("Problem creating key/value")?;
+                    .context("Problem creating a channel")?;
+
+                for kv in self.key_values {
+                    client
+                        .add_key_value_pair(app_id, SPIN_DEFAULT_KV_STORE.to_string(), kv.0, kv.1)
+                        .await
+                        .context("Problem creating key/value")?;
                 }
 
                 set_variables(&client, app_id, &self.variables).await?;
@@ -327,7 +325,8 @@ impl DeployCommand {
             }
         };
 
-        let channel = CloudClient::get_channel_by_id(&client, &channel_id.to_string())
+        let channel = client
+            .get_channel_by_id(&channel_id.to_string())
             .await
             .context("Problem getting channel by id")?;
         let app_base_url = build_app_base_url(&channel.domain, &login_connection.url)?;
@@ -471,7 +470,9 @@ impl DeployCommand {
         cloud_client: &CloudClient,
         name: String,
     ) -> Result<Option<Uuid>> {
-        let apps_vm = CloudClient::list_apps(cloud_client, DEFAULT_APPLIST_PAGE_SIZE, None).await?;
+        let apps_vm = cloud_client
+            .list_apps(DEFAULT_APPLIST_PAGE_SIZE, None)
+            .await?;
         let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
         match app {
             Some(a) => Ok(Some(a.id)),
@@ -861,7 +862,8 @@ async fn create_and_link_databases_for_existing_app(
                     client.create_database(db, Some(resource_label)).await?;
                 }
                 DatabaseSelection::Existing(db) => {
-                    CloudClient::create_database_link(client, &db, resource_label)
+                    client
+                        .create_database_link(&db, resource_label)
                         .await
                         .with_context(|| {
                             format!(r#"Could not link database "{}" to app "{}""#, db, app_name,)
@@ -885,7 +887,8 @@ async fn link_databases(
             app_id,
             app_name: Some(app_name.clone()),
         };
-        CloudClient::create_database_link(client, &database, resource_label)
+        client
+            .create_database_link(&database, resource_label)
             .await
             .with_context(|| {
                 format!(
