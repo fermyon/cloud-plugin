@@ -7,8 +7,6 @@ use cloud_openapi::models::{
     ResourceLabel,
 };
 use oci_distribution::{token_cache, Reference, RegistryOperation};
-use rand::Rng;
-use semver::BuildMetadata;
 use spin_common::{arg_parser::parse_kv, sloth};
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
 use spin_manifest::ApplicationTrigger;
@@ -35,7 +33,6 @@ use crate::{
 use crate::{
     commands::login::{LoginCommand, LoginConnection},
     opts::*,
-    parse_buildinfo,
 };
 
 use super::sqlite::database_has_link;
@@ -78,22 +75,6 @@ pub struct DeployCommand {
         group = "source",
     )]
     pub registry_source: Option<String>,
-
-    /// Disable attaching buildinfo
-    #[clap(
-        long = "no-buildinfo",
-        conflicts_with = BUILDINFO_OPT,
-        env = "SPIN_DEPLOY_NO_BUILDINFO"
-    )]
-    pub no_buildinfo: bool,
-
-    /// Build metadata to append to the oci tag
-    #[clap(
-        name = BUILDINFO_OPT,
-        long = "buildinfo",
-        parse(try_from_str = parse_buildinfo),
-    )]
-    pub buildinfo: Option<BuildMetadata>,
 
     /// For local apps, specifies to perform `spin build` before deploying the application.
     ///
@@ -190,15 +171,6 @@ impl DeployCommand {
 
         let client = CloudClient::new(connection_config.clone());
 
-        let buildinfo = if !self.no_buildinfo {
-            match &self.buildinfo {
-                Some(i) => Some(i.clone()),
-                None => Some(random_buildinfo()),
-            }
-        } else {
-            None
-        };
-
         let dir = tempfile::tempdir()?;
 
         let application = self.load_cloud_app(dir.path()).await?;
@@ -211,22 +183,12 @@ impl DeployCommand {
         std::env::set_var("SPIN_OCI_SKIP_INLINED_FILES", "true");
 
         let digest = self
-            .push_oci(
-                application.clone(),
-                buildinfo.clone(),
-                connection_config.clone(),
-            )
+            .push_oci(application.clone(), connection_config.clone())
             .await?;
 
         let name = sanitize_app_name(application.name()?);
         let storage_id = format!("oci://{}", name);
-        let version = sanitize_app_version(
-            &(format!(
-                "{}-{}",
-                application.version()?,
-                buildinfo.clone().context("Cannot parse build info")?
-            )),
-        );
+        let version = sanitize_app_version(application.version()?);
 
         println!("Deploying...");
 
@@ -544,7 +506,6 @@ impl DeployCommand {
     async fn push_oci(
         &self,
         application: DeployableApp,
-        buildinfo: Option<BuildMetadata>,
         connection_config: ConnectionConfig,
     ) -> Result<Option<String>> {
         let mut client = spin_oci::Client::new(connection_config.insecure, None).await?;
@@ -556,23 +517,12 @@ impl DeployCommand {
             .context("Unable to derive host from cloud URL")?;
         let cloud_registry_host = format!("registry.{cloud_host}");
 
-        let reference = match buildinfo {
-            Some(buildinfo) => {
-                format!(
-                    "{}/{}:{}",
-                    cloud_registry_host,
-                    &sanitize_app_name(application.name()?),
-                    &sanitize_app_version(&(application.version()?.to_owned() + "-" + &buildinfo),)
-                )
-            }
-            None => {
-                format!(
-                    "{}/{}",
-                    cloud_registry_host,
-                    &sanitize_app_name(application.name()?)
-                )
-            }
-        };
+        let reference = format!(
+            "{}/{}:{}",
+            cloud_registry_host,
+            &sanitize_app_name(application.name()?),
+            &sanitize_app_version(application.version()?)
+        );
 
         let oci_ref = Reference::try_from(reference.as_ref())
             .context(format!("Could not parse reference '{reference}'"))?;
@@ -1016,12 +966,6 @@ impl DeployableComponent {
             .map(|s| s.to_owned())
             .collect()
     }
-}
-
-fn random_buildinfo() -> BuildMetadata {
-    let random_bytes: [u8; 4] = rand::thread_rng().gen();
-    let random_hex: String = random_bytes.iter().map(|b| format!("{:x}", b)).collect();
-    BuildMetadata::new(&format!("r{random_hex}")).unwrap()
 }
 
 fn build_app_base_url(app_domain: &str, cloud_url: &Url) -> Result<Url> {

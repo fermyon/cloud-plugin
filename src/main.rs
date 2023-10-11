@@ -13,7 +13,6 @@ use commands::{
     sqlite::SqliteCommand,
     variables::VariablesCommand,
 };
-use semver::BuildMetadata;
 
 /// Returns build information, similar to: 0.1.0 (2be4034 2022-03-31).
 const VERSION: &str = concat!(
@@ -67,8 +66,4 @@ async fn main() -> Result<(), Error> {
         CloudCli::Link(cmd) => cmd.run().await,
         CloudCli::Unlink(cmd) => cmd.run().await,
     }
-}
-
-pub(crate) fn parse_buildinfo(buildinfo: &str) -> Result<BuildMetadata> {
-    Ok(BuildMetadata::new(buildinfo)?)
 }
