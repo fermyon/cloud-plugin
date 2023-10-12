@@ -54,8 +54,8 @@ pub struct DeleteCommand {
 #[derive(Parser, Debug)]
 pub struct ExecuteCommand {
     /// Name of database to execute against
-    #[clap(value_parser = clap::builder::ValueParser::new(disallow_empty))]
-    name: String,
+    #[clap(short = 'd', long = "database", value_parser = clap::builder::ValueParser::new(disallow_empty))]
+    database: String,
 
     ///Statement to execute
     #[clap(value_parser = clap::builder::ValueParser::new(disallow_empty))]
@@ -215,8 +215,8 @@ impl ExecuteCommand {
             .get_databases(None)
             .await
             .context("Problem fetching databases")?;
-        if !list.iter().any(|d| d.name == self.name) {
-            anyhow::bail!("No database found with name \"{}\"", self.name);
+        if !list.iter().any(|d| d.name == self.database) {
+            anyhow::bail!("No database found with name \"{}\"", self.database);
         }
         let statement = if let Some(path) = self.statement.strip_prefix('@') {
             std::fs::read_to_string(path)
@@ -225,7 +225,7 @@ impl ExecuteCommand {
             self.statement
         };
         client
-            .execute_sql(self.name, statement)
+            .execute_sql(self.database, statement)
             .await
             .context("Problem executing SQL")?;
         Ok(())
