@@ -54,8 +54,16 @@ pub struct DeleteCommand {
 #[derive(Parser, Debug)]
 pub struct ExecuteCommand {
     /// Name of database to execute against
-    #[clap(short = 'd', long = "database", value_parser = clap::builder::ValueParser::new(disallow_empty))]
-    database: String,
+    #[clap(name = "DATABASE", short = 'd', long = "database", value_parser = clap::builder::ValueParser::new(disallow_empty), group = "db", required_unless_present = "LABEL")]
+    database: Option<String>,
+
+    /// Label of database to execute against
+    #[clap(name = "LABEL", short = 'l', long = "label", value_parser = clap::builder::ValueParser::new(disallow_empty), group = "db", requires = "APP", required_unless_present = "DATABASE")]
+    label: Option<String>,
+
+    /// App to which label relates
+    #[clap(name = "APP", short = 'a', long = "app", value_parser = clap::builder::ValueParser::new(disallow_empty), requires = "LABEL", conflicts_with = "DATABASE")]
+    app: Option<String>,
 
     ///Statement to execute
     #[clap(value_parser = clap::builder::ValueParser::new(disallow_empty))]
@@ -159,7 +167,10 @@ impl SqliteCommand {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
                 cmd.run(client).await
             }
-            Self::Execute(cmd) => cmd.run().await,
+            Self::Execute(cmd) => {
+                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
+                cmd.run(client).await
+            }
             Self::List(cmd) => cmd.run().await,
             Self::Rename(cmd) => cmd.run().await,
         }
@@ -209,15 +220,13 @@ impl DeleteCommand {
 }
 
 impl ExecuteCommand {
-    pub async fn run(self) -> Result<()> {
-        let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
+    pub async fn run(self, client: impl CloudClientInterface) -> Result<()> {
+        let target = self.target()?;
         let list = client
             .get_databases(None)
             .await
             .context("Problem fetching databases")?;
-        if !list.iter().any(|d| d.name == self.database) {
-            anyhow::bail!("No database found with name \"{}\"", self.database);
-        }
+        let database = target.find_in(list)?.name;
         let statement = if let Some(path) = self.statement.strip_prefix('@') {
             std::fs::read_to_string(path)
                 .with_context(|| format!("could not read sql file at '{path}'"))?
@@ -225,10 +234,43 @@ impl ExecuteCommand {
             self.statement
         };
         client
-            .execute_sql(self.database, statement)
+            .execute_sql(database, statement)
             .await
             .context("Problem executing SQL")?;
         Ok(())
+    }
+
+    fn target(&self) -> anyhow::Result<ExecuteTarget> {
+        match (&self.database, &self.label, &self.app) {
+            (Some(d), None, None) => Ok(ExecuteTarget::Database(d.to_owned())),
+            (None, Some(l), Some(a)) => Ok(ExecuteTarget::Label {
+                label: l.to_owned(),
+                app: a.to_owned(),
+            }),
+            _ => Err(anyhow::anyhow!("Invalid combination of arguments")), // Should be prevented by clap
+        }
+    }
+}
+
+enum ExecuteTarget {
+    Database(String),
+    Label { label: String, app: String },
+}
+
+impl ExecuteTarget {
+    fn find_in(&self, databases: Vec<Database>) -> anyhow::Result<Database> {
+        match self {
+            Self::Database(database) => databases
+                .into_iter()
+                .find(|d| &d.name == database)
+                .ok_or_else(|| anyhow::anyhow!("No database found with name \"{database}\"")),
+            Self::Label { label, app } => databases
+                .into_iter()
+                .find(|d| database_has_link(d, label, Some(app.as_str())))
+                .ok_or_else(|| {
+                    anyhow::anyhow!(r#"No database found with label "{label}" for app "{app}""#)
+                }),
+        }
     }
 }
 
@@ -445,8 +487,11 @@ pub fn find_database_link(db: &Database, label: &str) -> Option<Link> {
     })
 }
 
-pub fn database_has_link(db: &Database, link: &ResourceLabel) -> bool {
-    db.links.iter().any(|l| l == link)
+pub fn database_has_link(database: &Database, label: &str, app: Option<&str>) -> bool {
+    database
+        .links
+        .iter()
+        .any(|l| l.label == label && l.app_name.as_deref() == app)
 }
 
 #[cfg(test)]
@@ -526,5 +571,137 @@ mod sqlite_tests {
         mock.expect_delete_database().returning(|_| Ok(()));
 
         command.run(mock).await
+    }
+
+    #[tokio::test]
+    async fn test_execute_by_db_if_db_exists_then_statement_is_executed() -> Result<()> {
+        let db = "db1";
+        let sql = "CREATE TABLE test (message TEXT)";
+
+        let command = ExecuteCommand {
+            database: Some(db.to_string()),
+            label: None,
+            app: None,
+            common: Default::default(),
+            statement: sql.to_owned(),
+        };
+
+        let mut mock = MockCloudClientInterface::new();
+        mock.expect_get_databases()
+            .returning(move |_| Ok(vec![Database::new(db.to_string(), vec![])]));
+        mock.expect_execute_sql()
+            .withf(move |dbarg, sqlarg| dbarg == db && sqlarg == sql)
+            .returning(|_, _| Ok(()));
+
+        command.run(mock).await
+    }
+
+    #[tokio::test]
+    async fn test_execute_by_db_if_db_does_not_exist_then_error() -> Result<()> {
+        let askeddb = "asked-for";
+        let actualdb = "actual";
+        let sql = "CREATE TABLE test (message TEXT)";
+
+        let command = ExecuteCommand {
+            database: Some(askeddb.to_string()),
+            label: None,
+            app: None,
+            common: Default::default(),
+            statement: sql.to_owned(),
+        };
+
+        let mut mock = MockCloudClientInterface::new();
+        mock.expect_get_databases()
+            .returning(move |_| Ok(vec![Database::new(actualdb.to_string(), vec![])]));
+
+        let err = command
+            .run(mock)
+            .await
+            .expect_err("exec should have errored but did not");
+        assert_eq!(
+            err.to_string(),
+            r#"No database found with name "asked-for""#
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_execute_by_label_if_label_linked_then_statement_is_executed() -> Result<()> {
+        let label = "email";
+        let app = "messaging";
+        let sql = "CREATE TABLE test (message TEXT)";
+
+        let command = ExecuteCommand {
+            database: None,
+            label: Some(label.to_string()),
+            app: Some(app.to_string()),
+            common: Default::default(),
+            statement: sql.to_owned(),
+        };
+
+        let mut mock = MockCloudClientInterface::new();
+        mock.expect_get_databases()
+            .returning(move |_| Ok(fake_dbs()));
+        mock.expect_execute_sql()
+            .withf(move |dbarg, sqlarg| dbarg == "db2" && sqlarg == sql)
+            .returning(|_, _| Ok(()));
+
+        command.run(mock).await
+    }
+
+    #[tokio::test]
+    async fn test_execute_by_label_if_label_not_linked_then_error() -> Result<()> {
+        let label = "snailmail";
+        let app = "messaging";
+        let sql = "CREATE TABLE test (message TEXT)";
+
+        let command = ExecuteCommand {
+            database: None,
+            label: Some(label.to_string()),
+            app: Some(app.to_string()),
+            common: Default::default(),
+            statement: sql.to_owned(),
+        };
+
+        let mut mock = MockCloudClientInterface::new();
+        mock.expect_get_databases()
+            .returning(move |_| Ok(fake_dbs()));
+
+        let err = command
+            .run(mock)
+            .await
+            .expect_err("exec should have errored but did not");
+        assert_eq!(
+            err.to_string(),
+            r#"No database found with label "snailmail" for app "messaging""#
+        );
+        Ok(())
+    }
+
+    fn fake_dbs() -> Vec<Database> {
+        vec![
+            Database::new(
+                "db1".to_string(),
+                vec![
+                    resource_label("voicemail", "messaging"),
+                    resource_label("email", "attachment-manager"),
+                ],
+            ),
+            Database::new(
+                "db2".to_string(),
+                vec![
+                    resource_label("notes", "docs"),
+                    resource_label("email", "messaging"),
+                ],
+            ),
+        ]
+    }
+
+    fn resource_label(label: &str, app: &str) -> ResourceLabel {
+        ResourceLabel {
+            label: label.to_owned(),
+            app_id: uuid::Uuid::new_v4(),
+            app_name: Some(app.to_owned()),
+        }
     }
 }
