@@ -1,7 +1,6 @@
 pub const DEFAULT_MANIFEST_FILE: &str = spin_common::paths::DEFAULT_MANIFEST_FILE;
 pub const APP_MANIFEST_FILE_OPT: &str = "APP_MANIFEST_FILE";
 pub const APPLICATION_OPT: &str = "APPLICATION";
-pub const BUILDINFO_OPT: &str = "BUILDINFO";
 pub const FROM_REGISTRY_OPT: &str = "REGISTRY_REFERENCE";
 pub const INSECURE_OPT: &str = "INSECURE";
 pub const CLOUD_SERVER_URL_OPT: &str = "CLOUD_SERVER_URL";
