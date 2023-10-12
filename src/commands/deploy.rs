@@ -1,41 +1,41 @@
 use anyhow::{anyhow, bail, ensure, Context, Result};
-use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::{
     client::{Client as CloudClient, ConnectionConfig},
     CloudClientExt, CloudClientInterface,
 };
-use cloud_openapi::models::{
-    ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy, Database,
-    ResourceLabel,
-};
+use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
 use oci_distribution::{token_cache, Reference, RegistryOperation};
-use spin_common::{arg_parser::parse_kv, sloth};
+use spin_common::arg_parser::parse_kv;
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
 use spin_manifest::ApplicationTrigger;
-use tokio::fs;
 use tracing::instrument;
 
 use std::{
     collections::HashSet,
-    io::{self, Write},
+    io::Write,
     path::{Path, PathBuf},
 };
 use url::Url;
-use uuid::Uuid;
 
-use crate::{
-    commands::variables::{get_variables, set_variables},
-    random_name::RandomNameGenerator,
-    spin,
+mod app_source;
+mod build;
+mod cancellable;
+mod database;
+mod interaction;
+mod login;
+
+use app_source::AppSource;
+use cancellable::Cancellable;
+use database::{
+    create_and_link_databases_for_existing_app, create_databases_for_new_app, link_databases,
 };
+use interaction::Interactor;
+pub use login::login_connection;
 
-use crate::{
-    commands::login::{LoginCommand, LoginConnection},
-    opts::*,
-};
+use crate::commands::variables::get_variables;
 
-use super::sqlite::database_has_link;
+use crate::opts::*;
 
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
@@ -110,181 +110,108 @@ pub struct DeployCommand {
     pub variables: Vec<(String, String)>,
 }
 
+const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
+
 impl DeployCommand {
     pub async fn run(self) -> Result<()> {
+        let app_source = self.resolve_app_source();
+
         if self.build {
-            self.run_spin_build().await?;
+            app_source.build().await?;
         }
 
         let login_connection = login_connection(self.deployment_env_id.as_deref()).await?;
 
-        const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
-
-        self.deploy_cloud(login_connection)
-            .await
-            .map_err(|e| anyhow!("{:?}\n\nLearn more at {}", e, DEVELOPER_CLOUD_FAQ))
-    }
-
-    fn resolve_app_source(&self) -> AppSource {
-        match (&self.app_source, &self.file_source, &self.registry_source) {
-            (None, None, None) => self.default_manifest_or_none(),
-            (Some(source), None, None) => Self::infer_source(source),
-            (None, Some(file), None) => Self::infer_file_source(file.to_owned()),
-            (None, None, Some(reference)) => AppSource::OciRegistry(reference.to_owned()),
-            _ => AppSource::unresolvable("More than one application source was specified"),
-        }
-    }
-
-    fn default_manifest_or_none(&self) -> AppSource {
-        let default_manifest = PathBuf::from(DEFAULT_MANIFEST_FILE);
-        if default_manifest.exists() {
-            AppSource::File(default_manifest)
-        } else {
-            AppSource::None
-        }
-    }
-
-    fn infer_source(source: &str) -> AppSource {
-        let path = PathBuf::from(source);
-        if path.exists() {
-            Self::infer_file_source(path)
-        } else if spin_oci::is_probably_oci_reference(source) {
-            AppSource::OciRegistry(source.to_owned())
-        } else {
-            AppSource::Unresolvable(format!("File or directory '{source}' not found. If you meant to load from a registry, use the `--from-registry` option."))
-        }
-    }
-
-    fn infer_file_source(path: impl Into<PathBuf>) -> AppSource {
-        match spin_common::paths::resolve_manifest_file_path(path.into()) {
-            Ok(file) => AppSource::File(file),
-            Err(e) => AppSource::Unresolvable(e.to_string()),
-        }
-    }
-
-    async fn deploy_cloud(self, login_connection: LoginConnection) -> Result<()> {
         let connection_config = ConnectionConfig {
             url: login_connection.url.to_string(),
             insecure: login_connection.danger_accept_invalid_certs,
             token: login_connection.token.clone(),
         };
-
         let client = CloudClient::new(connection_config.clone());
 
+        let interactor = interaction::interactive();
+
+        self.deploy_cloud(
+            &interactor,
+            &client,
+            &login_connection.url,
+            connection_config,
+            &app_source,
+        )
+        .await
+        .map_err(|e| anyhow!("{:?}\n\nLearn more at {}", e, DEVELOPER_CLOUD_FAQ))
+    }
+
+    async fn deploy_cloud(
+        self,
+        interactor: &impl Interactor,
+        client: &impl CloudClientInterface,
+        cloud_url: &Url,
+        connection_config: ConnectionConfig,
+        app_source: &AppSource,
+    ) -> Result<()> {
         let dir = tempfile::tempdir()?;
 
-        let application = self.load_cloud_app(dir.path()).await?;
+        let application = app_source.load_cloud_app(dir.path()).await?;
 
         validate_cloud_app(&application)?;
-        self.validate_deployment_environment(&application, &client)
+        self.validate_deployment_environment(&application, client)
             .await?;
 
         // TODO: can remove once spin_oci inlines small files by default
         std::env::set_var("SPIN_OCI_SKIP_INLINED_FILES", "true");
 
-        let digest = self
-            .push_oci(application.clone(), connection_config.clone())
-            .await?;
+        let digest = push_oci(&application, cloud_url, &connection_config).await?;
 
-        let name = sanitize_app_name(application.name()?);
-        let storage_id = format!("oci://{}", name);
+        let app_name = sanitize_app_name(application.name()?);
+        let storage_id = format!("oci://{}", app_name);
         let version = sanitize_app_version(application.version()?);
 
         println!("Deploying...");
 
         // Create or update app
-        let channel_id = match client.get_app_id(&name).await? {
+        let deployment = match client.get_app_id(&app_name).await? {
             Some(app_id) => {
-                let labels = application.sqlite_databases();
-                if !labels.is_empty()
-                    && create_and_link_databases_for_existing_app(&client, &name, app_id, labels)
-                        .await?
-                        .is_none()
-                {
-                    // User canceled terminal interaction
-                    return Ok(());
-                }
-                client
-                    .add_revision(storage_id.clone(), version.clone())
-                    .await?;
-                let existing_channel_id = client
-                    .get_channel_id(app_id, SPIN_DEPLOY_CHANNEL_NAME)
-                    .await?;
-                let active_revision_id = client.get_revision_id(app_id, &version).await?;
-                client
-                    .patch_channel(
-                        existing_channel_id,
-                        None,
-                        Some(CloudChannelRevisionSelectionStrategy::UseSpecifiedRevision),
-                        None,
-                        Some(active_revision_id),
-                        None,
-                    )
-                    .await
-                    .context("Problem patching a channel")?;
-
-                for kv in self.key_values {
-                    client
-                        .add_key_value_pair(app_id, SPIN_DEFAULT_KV_STORE.to_string(), kv.0, kv.1)
-                        .await
-                        .context("Problem creating key/value")?;
-                }
-
-                set_variables(&client, app_id, &self.variables).await?;
-
-                existing_channel_id
+                update_app_and_resources(
+                    interactor,
+                    &application,
+                    client,
+                    app_id,
+                    &app_name,
+                    &storage_id,
+                    &version,
+                )
+                .await?
             }
             None => {
-                let labels = application.sqlite_databases();
-                let databases_to_link =
-                    match create_databases_for_new_app(&client, &name, labels).await? {
-                        Some(dbs) => dbs,
-                        None => return Ok(()), // User canceled terminal interaction
-                    };
-
-                let app_id = client
-                    .add_app(&name, &storage_id)
-                    .await
-                    .context("Unable to create app")?;
-
-                // Now that the app has been created, we can link databases to it.
-                link_databases(&client, name, app_id, databases_to_link).await?;
-
-                client
-                    .add_revision(storage_id.clone(), version.clone())
-                    .await?;
-
-                let active_revision_id = client.get_revision_id(app_id, &version).await?;
-
-                let channel_id = client
-                    .add_channel(
-                        app_id,
-                        String::from(SPIN_DEPLOY_CHANNEL_NAME),
-                        CloudChannelRevisionSelectionStrategy::UseSpecifiedRevision,
-                        None,
-                        Some(active_revision_id),
-                    )
-                    .await
-                    .context("Problem creating a channel")?;
-
-                for kv in self.key_values {
-                    client
-                        .add_key_value_pair(app_id, SPIN_DEFAULT_KV_STORE.to_string(), kv.0, kv.1)
-                        .await
-                        .context("Problem creating key/value")?;
-                }
-
-                set_variables(&client, app_id, &self.variables).await?;
-
-                channel_id
+                create_app_and_resources(
+                    interactor,
+                    &application,
+                    client,
+                    &app_name,
+                    &storage_id,
+                    &version,
+                )
+                .await?
             }
         };
 
+        let Cancellable::Accepted(deployment) = deployment else {
+            return Ok(());
+        };
+
+        client
+            .set_key_values(deployment.app_id, SPIN_DEFAULT_KV_STORE, &self.key_values)
+            .await?;
+        client
+            .set_variables(deployment.app_id, &self.variables)
+            .await?;
+
         let channel = client
-            .get_channel_by_id(&channel_id.to_string())
+            .get_channel_by_id(&deployment.channel_id)
             .await
             .context("Problem getting channel by id")?;
-        let app_base_url = build_app_base_url(&channel.domain, &login_connection.url)?;
+        let app_base_url = build_app_base_url(&channel.domain, cloud_url)?;
         let (http_base, http_routes) = application.http_routes();
         if !http_routes.is_empty() {
             wait_for_ready(
@@ -303,10 +230,210 @@ impl DeployCommand {
         Ok(())
     }
 
-    async fn load_cloud_app(&self, working_dir: &Path) -> Result<DeployableApp, anyhow::Error> {
-        let app_source = self.resolve_app_source();
+    async fn validate_deployment_environment(
+        &self,
+        app: &DeployableApp,
+        client: &impl CloudClientInterface,
+    ) -> Result<()> {
+        let required_variables = app
+            .0
+            .variables
+            .iter()
+            .filter(|(_, v)| v.default.is_none())
+            .map(|(k, _)| k)
+            .collect::<HashSet<_>>();
+        if !required_variables.is_empty() {
+            self.ensure_variables_present(&required_variables, client, app.name()?)
+                .await?;
+        }
+        Ok(())
+    }
 
-        match &app_source {
+    async fn ensure_variables_present(
+        &self,
+        required_variables: &HashSet<&String>,
+        client: &impl CloudClientInterface,
+        name: &str,
+    ) -> Result<()> {
+        // Are all required variables satisifed by variables passed in this command?
+        let provided_variables = self.variables.iter().map(|(k, _)| k).collect();
+        let unprovided_variables = required_variables
+            .difference(&provided_variables)
+            .copied()
+            .collect::<HashSet<_>>();
+        if unprovided_variables.is_empty() {
+            return Ok(());
+        }
+
+        // Are all remaining required variables satisfied by variables already in the cloud?
+        let extant_variables = match client.get_app_id(name).await {
+            Ok(Some(app_id)) => match get_variables(client, app_id).await {
+                Ok(variables) => variables,
+                Err(_) => {
+                    // Don't block deployment for being unable to check the variables.
+                    eprintln!("Unable to confirm variables {unprovided_variables:?} are defined. Check your app after deployment.");
+                    return Ok(());
+                }
+            },
+            Ok(None) => vec![],
+            Err(_) => {
+                // Don't block deployment for being unable to check the variables.
+                eprintln!("Unable to confirm variables {unprovided_variables:?} are defined. Check your app after deployment.");
+                return Ok(());
+            }
+        };
+        let extant_variables = extant_variables.iter().map(|v| &v.key).collect();
+        let unprovided_variables = unprovided_variables
+            .difference(&extant_variables)
+            .map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        if unprovided_variables.is_empty() {
+            return Ok(());
+        }
+
+        let list_text = unprovided_variables.join(", ");
+        Err(anyhow!("The application requires values for the following variable(s) which have not been set: {list_text}. Use the --variable flag to provide values."))
+    }
+}
+
+async fn push_oci(
+    application: &DeployableApp,
+    cloud_url: &Url,
+    connection_config: &ConnectionConfig,
+) -> Result<Option<String>> {
+    let mut client = spin_oci::Client::new(connection_config.insecure, None).await?;
+
+    let cloud_host = cloud_url
+        .host_str()
+        .context("Unable to derive host from cloud URL")?;
+    let cloud_registry_host = format!("registry.{cloud_host}");
+
+    let reference = format!(
+        "{}/{}:{}",
+        cloud_registry_host,
+        &sanitize_app_name(application.name()?),
+        &sanitize_app_version(application.version()?)
+    );
+
+    let oci_ref = Reference::try_from(reference.as_ref())
+        .context(format!("Could not parse reference '{reference}'"))?;
+
+    client.insert_token(
+        &oci_ref,
+        RegistryOperation::Push,
+        token_cache::RegistryTokenType::Bearer(token_cache::RegistryToken::Token {
+            token: connection_config.token.clone(),
+        }),
+    );
+
+    println!(
+        "Uploading {} version {} to Fermyon Cloud...",
+        &oci_ref.repository(),
+        &oci_ref.tag().unwrap_or(application.version()?)
+    );
+    let digest = client.push_locked(application.0.clone(), reference).await?;
+
+    Ok(digest)
+}
+
+async fn create_app_and_resources(
+    interactor: &impl Interactor,
+    application: &DeployableApp,
+    client: &impl CloudClientInterface,
+    app_name: &str,
+    storage_id: &str,
+    version: &str,
+) -> anyhow::Result<Cancellable<Deployment>> {
+    let labels = application.sqlite_databases();
+    let databases_to_link =
+        match create_databases_for_new_app(interactor, client, app_name, labels).await? {
+            Some(dbs) => dbs,
+            None => return Ok(Cancellable::Cancelled),
+        };
+
+    let app_id = client
+        .add_app(app_name, storage_id)
+        .await
+        .context("Unable to create app")?;
+
+    link_databases(client, app_name, app_id, databases_to_link).await?;
+
+    client.add_revision_ref(storage_id, version).await?;
+
+    let active_revision_id = client.get_revision_id(app_id, version).await?;
+    let channel_id = client
+        .add_channel(
+            app_id,
+            String::from(SPIN_DEPLOY_CHANNEL_NAME),
+            CloudChannelRevisionSelectionStrategy::UseSpecifiedRevision,
+            None,
+            Some(active_revision_id),
+        )
+        .await
+        .context("Problem creating a channel")?;
+
+    let cloud_app = Deployment::new(app_id, channel_id);
+    Ok(Cancellable::Accepted(cloud_app))
+}
+
+async fn update_app_and_resources(
+    interactor: &impl Interactor,
+    application: &DeployableApp,
+    client: &impl CloudClientInterface,
+    app_id: uuid::Uuid,
+    app_name: &str,
+    storage_id: &str,
+    version: &str,
+) -> anyhow::Result<Cancellable<Deployment>> {
+    let labels = application.sqlite_databases();
+    if !labels.is_empty()
+        && create_and_link_databases_for_existing_app(interactor, client, app_name, app_id, labels)
+            .await?
+            .is_none()
+    {
+        // User canceled terminal interaction
+        return Ok(Cancellable::Cancelled);
+    }
+
+    client.add_revision_ref(storage_id, version).await?;
+
+    let active_revision_id = client.get_revision_id(app_id, version).await?;
+    let existing_channel_id = client
+        .get_channel_id(app_id, SPIN_DEPLOY_CHANNEL_NAME)
+        .await?;
+    client
+        .patch_channel(
+            existing_channel_id,
+            None,
+            Some(CloudChannelRevisionSelectionStrategy::UseSpecifiedRevision),
+            None,
+            Some(active_revision_id),
+            None,
+        )
+        .await
+        .context("Problem patching a channel")?;
+
+    let cloud_app = Deployment::new(app_id, existing_channel_id);
+    Ok(Cancellable::Accepted(cloud_app))
+}
+
+struct Deployment {
+    pub app_id: uuid::Uuid,
+    pub channel_id: String,
+}
+
+impl Deployment {
+    pub fn new(app_id: uuid::Uuid, channel_id: uuid::Uuid) -> Self {
+        Self {
+            app_id,
+            channel_id: channel_id.to_string(),
+        }
+    }
+}
+
+impl AppSource {
+    async fn load_cloud_app(&self, working_dir: &Path) -> Result<DeployableApp, anyhow::Error> {
+        match self {
             AppSource::File(app_file) => {
                 let cfg_any = spin_loader::local::raw_manifest_from_file(&app_file).await?;
                 let cfg = cfg_any.into_v1();
@@ -352,153 +479,6 @@ impl DeployCommand {
             AppSource::Unresolvable(err) => {
                 anyhow::bail!("{err}");
             }
-        }
-    }
-
-    async fn validate_deployment_environment(
-        &self,
-        app: &DeployableApp,
-        client: &CloudClient,
-    ) -> Result<()> {
-        let required_variables = app
-            .0
-            .variables
-            .iter()
-            .filter(|(_, v)| v.default.is_none())
-            .map(|(k, _)| k)
-            .collect::<HashSet<_>>();
-        if !required_variables.is_empty() {
-            self.ensure_variables_present(&required_variables, client, app.name()?)
-                .await?;
-        }
-        Ok(())
-    }
-
-    async fn ensure_variables_present(
-        &self,
-        required_variables: &HashSet<&String>,
-        client: &CloudClient,
-        name: &str,
-    ) -> Result<()> {
-        // Are all required variables satisifed by variables passed in this command?
-        let provided_variables = self.variables.iter().map(|(k, _)| k).collect();
-        let unprovided_variables = required_variables
-            .difference(&provided_variables)
-            .copied()
-            .collect::<HashSet<_>>();
-        if unprovided_variables.is_empty() {
-            return Ok(());
-        }
-
-        // Are all remaining required variables satisfied by variables already in the cloud?
-        let extant_variables = match client.get_app_id(name).await {
-            Ok(Some(app_id)) => match get_variables(client, app_id).await {
-                Ok(variables) => variables,
-                Err(_) => {
-                    // Don't block deployment for being unable to check the variables.
-                    eprintln!("Unable to confirm variables {unprovided_variables:?} are defined. Check your app after deployment.");
-                    return Ok(());
-                }
-            },
-            Ok(None) => vec![],
-            Err(_) => {
-                // Don't block deployment for being unable to check the variables.
-                eprintln!("Unable to confirm variables {unprovided_variables:?} are defined. Check your app after deployment.");
-                return Ok(());
-            }
-        };
-        let extant_variables = extant_variables.iter().map(|v| &v.key).collect();
-        let unprovided_variables = unprovided_variables
-            .difference(&extant_variables)
-            .map(|v| v.as_str())
-            .collect::<Vec<_>>();
-        if unprovided_variables.is_empty() {
-            return Ok(());
-        }
-
-        let list_text = unprovided_variables.join(", ");
-        Err(anyhow!("The application requires values for the following variable(s) which have not been set: {list_text}. Use the --variable flag to provide values."))
-    }
-
-    async fn push_oci(
-        &self,
-        application: DeployableApp,
-        connection_config: ConnectionConfig,
-    ) -> Result<Option<String>> {
-        let mut client = spin_oci::Client::new(connection_config.insecure, None).await?;
-
-        let cloud_url =
-            Url::parse(connection_config.url.as_str()).context("Unable to parse cloud URL")?;
-        let cloud_host = cloud_url
-            .host_str()
-            .context("Unable to derive host from cloud URL")?;
-        let cloud_registry_host = format!("registry.{cloud_host}");
-
-        let reference = format!(
-            "{}/{}:{}",
-            cloud_registry_host,
-            &sanitize_app_name(application.name()?),
-            &sanitize_app_version(application.version()?)
-        );
-
-        let oci_ref = Reference::try_from(reference.as_ref())
-            .context(format!("Could not parse reference '{reference}'"))?;
-
-        client.insert_token(
-            &oci_ref,
-            RegistryOperation::Push,
-            token_cache::RegistryTokenType::Bearer(token_cache::RegistryToken::Token {
-                token: connection_config.token,
-            }),
-        );
-
-        println!(
-            "Uploading {} version {} to Fermyon Cloud...",
-            &oci_ref.repository(),
-            &oci_ref.tag().unwrap_or(application.version()?)
-        );
-        let digest = client.push_locked(application.0, reference).await?;
-
-        Ok(digest)
-    }
-
-    async fn run_spin_build(&self) -> Result<()> {
-        self.resolve_app_source().build().await
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum AppSource {
-    None,
-    File(PathBuf),
-    OciRegistry(String),
-    Unresolvable(String),
-}
-
-impl AppSource {
-    fn unresolvable(message: impl Into<String>) -> Self {
-        Self::Unresolvable(message.into())
-    }
-
-    async fn build(&self) -> anyhow::Result<()> {
-        match self {
-            Self::File(manifest_path) => {
-                let spin_bin = spin::bin_path()?;
-
-                let result = tokio::process::Command::new(spin_bin)
-                    .args(["build", "-f"])
-                    .arg(manifest_path)
-                    .status()
-                    .await
-                    .context("Failed to execute `spin build` command")?;
-
-                if result.success() {
-                    Ok(())
-                } else {
-                    Err(anyhow!("Build failed: deployment cancelled"))
-                }
-            }
-            _ => Ok(()),
         }
     }
 }
@@ -557,211 +537,6 @@ fn validate_cloud_app(app: &DeployableApp) -> Result<()> {
         {
             bail!("Invalid store {invalid_store:?} for component {:?}. Cloud currently supports only the 'default' store.", component.id());
         }
-    }
-    Ok(())
-}
-
-/// A user's selection of a database to link to a label
-enum DatabaseSelection {
-    Existing(String),
-    New(String),
-    Cancelled,
-}
-
-/// Whether a database has already been linked or not
-enum ExistingAppDatabaseSelection {
-    NotYetLinked(DatabaseSelection),
-    AlreadyLinked,
-}
-
-async fn get_database_selection_for_existing_app(
-    name: &str,
-    client: &CloudClient,
-    resource_label: &ResourceLabel,
-) -> Result<ExistingAppDatabaseSelection> {
-    let databases = client.get_databases(None).await?;
-    if databases
-        .iter()
-        .any(|d| database_has_link(d, &resource_label.label, resource_label.app_name.as_deref()))
-    {
-        return Ok(ExistingAppDatabaseSelection::AlreadyLinked);
-    }
-    let selection = prompt_database_selection(name, &resource_label.label, databases)?;
-    Ok(ExistingAppDatabaseSelection::NotYetLinked(selection))
-}
-
-async fn get_database_selection_for_new_app(
-    name: &str,
-    client: &CloudClient,
-    label: &str,
-) -> Result<DatabaseSelection> {
-    let databases = client.get_databases(None).await?;
-    prompt_database_selection(name, label, databases)
-}
-
-fn prompt_database_selection(
-    name: &str,
-    label: &str,
-    databases: Vec<Database>,
-) -> Result<DatabaseSelection> {
-    let prompt = format!(
-        r#"App "{name}" accesses a database labeled "{label}"
-Would you like to link an existing database or create a new database?"#
-    );
-    let existing_opt = "Use an existing database and link app to it";
-    let create_opt = "Create a new database and link the app to it";
-    let opts = vec![existing_opt, create_opt];
-    let index = match dialoguer::Select::new()
-        .with_prompt(prompt)
-        .items(&opts)
-        .default(1)
-        .interact_opt()?
-    {
-        Some(i) => i,
-        None => return Ok(DatabaseSelection::Cancelled),
-    };
-    match index {
-        0 => prompt_for_existing_database(
-            name,
-            label,
-            databases.into_iter().map(|d| d.name).collect::<Vec<_>>(),
-        ),
-        1 => prompt_link_to_new_database(
-            name,
-            label,
-            databases
-                .iter()
-                .map(|d| d.name.as_str())
-                .collect::<HashSet<_>>(),
-        ),
-        _ => bail!("Choose unavailable option"),
-    }
-}
-
-fn prompt_for_existing_database(
-    name: &str,
-    label: &str,
-    mut database_names: Vec<String>,
-) -> Result<DatabaseSelection> {
-    let prompt =
-        format!(r#"Which database would you like to link to {name} using the label "{label}""#);
-    let index = match dialoguer::Select::new()
-        .with_prompt(prompt)
-        .items(&database_names)
-        .default(0)
-        .interact_opt()?
-    {
-        Some(i) => i,
-        None => return Ok(DatabaseSelection::Cancelled),
-    };
-    Ok(DatabaseSelection::Existing(database_names.remove(index)))
-}
-
-fn prompt_link_to_new_database(
-    name: &str,
-    label: &str,
-    existing_names: HashSet<&str>,
-) -> Result<DatabaseSelection> {
-    let generator = RandomNameGenerator::new();
-    let default_name = generator
-        .generate_unique(existing_names, 20)
-        .context("could not generate unique database name")?;
-
-    let prompt = format!(
-        r#"What would you like to name your database?
-Note: This name is used when managing your database at the account level. The app "{name}" will refer to this database by the label "{label}".
-Other apps can use different labels to refer to the same database."#
-    );
-    let name = dialoguer::Input::new()
-        .with_prompt(prompt)
-        .default(default_name)
-        .interact_text()?;
-    Ok(DatabaseSelection::New(name))
-}
-
-// Loops through an app's manifest and creates databases.
-// Returns a list of database and label pairs that should be
-// linked to the app once it is created.
-// Returns None if the user canceled terminal interaction
-async fn create_databases_for_new_app(
-    client: &CloudClient,
-    name: &str,
-    labels: HashSet<String>,
-) -> anyhow::Result<Option<Vec<(String, String)>>> {
-    let mut databases_to_link = Vec::new();
-    for label in labels {
-        let db = match get_database_selection_for_new_app(name, client, &label).await? {
-            DatabaseSelection::Existing(db) => db,
-            DatabaseSelection::New(db) => {
-                client.create_database(db.clone(), None).await?;
-                db
-            }
-            // User canceled terminal interaction
-            DatabaseSelection::Cancelled => return Ok(None),
-        };
-        databases_to_link.push((db, label));
-    }
-    Ok(Some(databases_to_link))
-}
-
-// Loops through an updated app's manifest and creates and links any newly referenced databases.
-// Returns None if the user canceled terminal interaction
-async fn create_and_link_databases_for_existing_app(
-    client: &CloudClient,
-    app_name: &str,
-    app_id: Uuid,
-    labels: HashSet<String>,
-) -> anyhow::Result<Option<()>> {
-    for label in labels {
-        let resource_label = ResourceLabel {
-            app_id,
-            label,
-            app_name: Some(app_name.to_string()),
-        };
-        if let ExistingAppDatabaseSelection::NotYetLinked(selection) =
-            get_database_selection_for_existing_app(app_name, client, &resource_label).await?
-        {
-            match selection {
-                // User canceled terminal interaction
-                DatabaseSelection::Cancelled => return Ok(None),
-                DatabaseSelection::New(db) => {
-                    client.create_database(db, Some(resource_label)).await?;
-                }
-                DatabaseSelection::Existing(db) => {
-                    client
-                        .create_database_link(&db, resource_label)
-                        .await
-                        .with_context(|| {
-                            format!(r#"Could not link database "{}" to app "{}""#, db, app_name,)
-                        })?;
-                }
-            }
-        }
-    }
-    Ok(Some(()))
-}
-
-async fn link_databases(
-    client: &CloudClient,
-    app_name: String,
-    app_id: Uuid,
-    database_labels: Vec<(String, String)>,
-) -> anyhow::Result<()> {
-    for (database, label) in database_labels {
-        let resource_label = ResourceLabel {
-            label,
-            app_id,
-            app_name: Some(app_name.clone()),
-        };
-        client
-            .create_database_link(&database, resource_label)
-            .await
-            .with_context(|| {
-                format!(
-                    r#"Failed to link database "{}" to app "{}""#,
-                    database, app_name
-                )
-            })?;
     }
     Ok(())
 }
@@ -895,15 +670,6 @@ fn build_app_base_url(app_domain: &str, cloud_url: &Url) -> Result<Url> {
     })
 }
 
-async fn check_healthz(base_url: &Url) -> Result<()> {
-    let healthz_url = base_url.join("healthz")?;
-    reqwest::get(healthz_url)
-        .await?
-        .error_for_status()
-        .with_context(|| format!("Server {} is unhealthy", base_url))?;
-    Ok(())
-}
-
 const READINESS_POLL_INTERVAL_SECS: u64 = 2;
 
 enum Destination {
@@ -1009,153 +775,6 @@ fn print_available_routes(app_base_url: &Url, base: &str, routes: &[HttpRoute]) 
             println!("    {}", description);
         }
     }
-}
-
-// Check if the token has expired.
-// If the expiration is None, assume the token has not expired
-fn has_expired(login_connection: &LoginConnection) -> Result<bool> {
-    match &login_connection.expiration {
-        Some(expiration) => match DateTime::parse_from_rfc3339(expiration) {
-            Ok(time) => Ok(Utc::now() > time),
-            Err(err) => Err(anyhow!(
-                "Failed to parse token expiration time '{}'. Error: {}",
-                expiration,
-                err
-            )),
-        },
-        None => Ok(false),
-    }
-}
-
-pub async fn login_connection(deployment_env_id: Option<&str>) -> Result<LoginConnection> {
-    let path = config_file_path(deployment_env_id)?;
-
-    // log in if config.json does not exist or cannot be read
-    let data = match fs::read_to_string(path.clone()).await {
-        Ok(d) => d,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            match deployment_env_id {
-                Some(name) => {
-                    // TODO: allow auto redirect to login preserving the name
-                    eprintln!("You have no instance saved as '{}'", name);
-                    eprintln!("Run `spin login --environment-name {}` to log in", name);
-                    std::process::exit(1);
-                }
-                None => {
-                    // log in, then read config
-                    // TODO: propagate deployment id (or bail if nondefault?)
-                    LoginCommand::parse_from(vec!["login"]).run().await?;
-                    fs::read_to_string(path.clone()).await?
-                }
-            }
-        }
-        Err(e) => {
-            bail!("Could not log in: {}", e);
-        }
-    };
-
-    let mut login_connection: LoginConnection = serde_json::from_str(&data)?;
-    let expired = match has_expired(&login_connection) {
-        Ok(val) => val,
-        Err(err) => {
-            eprintln!("{}\n", err);
-            eprintln!("Run `spin login` to log in again");
-            std::process::exit(1);
-        }
-    };
-
-    if expired {
-        // if we have a refresh token available, let's try to refresh the token
-        match login_connection.refresh_token {
-            Some(refresh_token) => {
-                // Only Cloud has support for refresh tokens
-                let connection_config = ConnectionConfig {
-                    url: login_connection.url.to_string(),
-                    insecure: login_connection.danger_accept_invalid_certs,
-                    token: login_connection.token.clone(),
-                };
-                let client = CloudClient::new(connection_config.clone());
-
-                match client
-                    .refresh_token(login_connection.token, refresh_token)
-                    .await
-                {
-                    Ok(token_info) => {
-                        login_connection.token = token_info.token;
-                        login_connection.refresh_token = Some(token_info.refresh_token);
-                        login_connection.expiration = Some(token_info.expiration);
-                        // save new token info
-                        let path = config_file_path(deployment_env_id)?;
-                        std::fs::write(path, serde_json::to_string_pretty(&login_connection)?)?;
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to refresh token: {}", e);
-                        match deployment_env_id {
-                            Some(name) => {
-                                eprintln!(
-                                    "Run `spin login --environment-name {}` to log in again",
-                                    name
-                                );
-                            }
-                            None => {
-                                eprintln!("Run `spin login` to log in again");
-                            }
-                        }
-                        std::process::exit(1);
-                    }
-                }
-            }
-            None => {
-                // session has expired and we have no way to refresh the token - log back in
-                match deployment_env_id {
-                    Some(name) => {
-                        // TODO: allow auto redirect to login preserving the name
-                        eprintln!("Your login to this environment has expired");
-                        eprintln!(
-                            "Run `spin login --environment-name {}` to log in again",
-                            name
-                        );
-                        std::process::exit(1);
-                    }
-                    None => {
-                        LoginCommand::parse_from(vec!["login"]).run().await?;
-                        let new_data = fs::read_to_string(path.clone()).await.context(format!(
-                            "Cannot find spin config at {}",
-                            path.to_string_lossy()
-                        ))?;
-                        login_connection = serde_json::from_str(&new_data)?;
-                    }
-                }
-            }
-        }
-    }
-
-    let sloth_guard = sloth::warn_if_slothful(
-        2500,
-        format!("Checking status ({})\n", login_connection.url),
-    );
-    check_healthz(&login_connection.url).await?;
-    // Server has responded - we don't want to keep the sloth timer running.
-    drop(sloth_guard);
-
-    Ok(login_connection)
-}
-
-// TODO: unify with login
-pub fn config_file_path(deployment_env_id: Option<&str>) -> Result<PathBuf> {
-    let root = dirs::config_dir()
-        .context("Cannot find configuration directory")?
-        .join("fermyon");
-
-    let file_stem = match deployment_env_id {
-        None => "config",
-        Some(id) => id,
-    };
-    let file = format!("{}.json", file_stem);
-
-    let path = root.join(file);
-
-    Ok(path)
 }
 
 #[cfg(test)]

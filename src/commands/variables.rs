@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Args, Parser};
-use cloud::{client::Client as CloudClient, CloudClientInterface};
+use cloud::{client::Client as CloudClient, CloudClientExt, CloudClientInterface};
 use serde::Deserialize;
 use serde_json::from_str;
 use spin_common::arg_parser::parse_kv;
@@ -72,7 +72,7 @@ impl VariablesCommand {
                 let (client, app_id) =
                     client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
                         .await?;
-                set_variables(&client, app_id, &cmd.variables_to_set).await?;
+                client.set_variables(app_id, &cmd.variables_to_set).await?;
             }
             Self::Delete(cmd) => {
                 let (client, app_id) =
@@ -94,19 +94,6 @@ impl VariablesCommand {
     }
 }
 
-pub(crate) async fn set_variables(
-    client: &CloudClient,
-    app_id: Uuid,
-    variables: &[(String, String)],
-) -> Result<()> {
-    for var in variables {
-        CloudClient::add_variable_pair(client, app_id, var.0.to_owned(), var.1.to_owned())
-            .await
-            .with_context(|| format!("Problem creating variable {}", var.0))?;
-    }
-    Ok(())
-}
-
 pub(crate) async fn delete_variables(
     client: &CloudClient,
     app_id: Uuid,
@@ -120,14 +107,21 @@ pub(crate) async fn delete_variables(
     Ok(())
 }
 
-async fn get_variables_json(client: &CloudClient, app_id: Uuid) -> Result<Vec<String>> {
-    let vars = CloudClient::get_variable_pairs(client, app_id)
+async fn get_variables_json(
+    client: &impl CloudClientInterface,
+    app_id: Uuid,
+) -> Result<Vec<String>> {
+    let vars = client
+        .get_variable_pairs(app_id)
         .await
         .context("Problem listing variables")?;
     Ok(vars)
 }
 
-pub(crate) async fn get_variables(client: &CloudClient, app_id: Uuid) -> Result<Vec<Variable>> {
+pub(crate) async fn get_variables(
+    client: &impl CloudClientInterface,
+    app_id: Uuid,
+) -> Result<Vec<Variable>> {
     let vars = get_variables_json(client, app_id).await?;
     let var_names = vars
         .iter()
