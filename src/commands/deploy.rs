@@ -666,7 +666,7 @@ async fn get_database_selection_for_existing_app(
     let databases = client.get_databases(None).await?;
     if databases
         .iter()
-        .any(|d| database_has_link(d, resource_label))
+        .any(|d| database_has_link(d, &resource_label.label, resource_label.app_name.as_deref()))
     {
         return Ok(ExistingAppDatabaseSelection::AlreadyLinked);
     }
