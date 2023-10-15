@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 #[cfg_attr(feature = "mocks", mockall::automock)]
 #[async_trait]
-pub trait CloudClientInterface {
+pub trait CloudClientInterface: Send + Sync {
     async fn create_device_code(&self, client_id: Uuid) -> Result<DeviceCodeItem>;
 
     async fn login(&self, token: String) -> Result<TokenInfo>;

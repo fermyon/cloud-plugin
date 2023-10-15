@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use clap::Parser;
 use cloud::{
     client::{Client as CloudClient, ConnectionConfig},
-    CloudClientInterface,
+    CloudClientExt, CloudClientInterface,
 };
 use cloud_openapi::models::{
     ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy, Database,
@@ -25,10 +25,7 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::{
-    commands::{
-        get_app_id_cloud,
-        variables::{get_variables, set_variables},
-    },
+    commands::variables::{get_variables, set_variables},
     random_name::RandomNameGenerator,
     spin,
 };
@@ -196,7 +193,7 @@ impl DeployCommand {
         println!("Deploying...");
 
         // Create or update app
-        let channel_id = match get_app_id_cloud(&client, &name).await? {
+        let channel_id = match client.get_app_id(&name).await? {
             Some(app_id) => {
                 let labels = application.sqlite_databases();
                 if !labels.is_empty()
@@ -210,12 +207,10 @@ impl DeployCommand {
                 client
                     .add_revision(storage_id.clone(), version.clone())
                     .await?;
-                let existing_channel_id = self
-                    .get_channel_id_cloud(&client, SPIN_DEPLOY_CHANNEL_NAME.to_string(), app_id)
+                let existing_channel_id = client
+                    .get_channel_id(app_id, SPIN_DEPLOY_CHANNEL_NAME)
                     .await?;
-                let active_revision_id = self
-                    .get_revision_id_cloud(&client, version.clone(), app_id)
-                    .await?;
+                let active_revision_id = client.get_revision_id(app_id, &version).await?;
                 client
                     .patch_channel(
                         existing_channel_id,
@@ -259,9 +254,7 @@ impl DeployCommand {
                     .add_revision(storage_id.clone(), version.clone())
                     .await?;
 
-                let active_revision_id = self
-                    .get_revision_id_cloud(&client, version.clone(), app_id)
-                    .await?;
+                let active_revision_id = client.get_revision_id(app_id, &version).await?;
 
                 let channel_id = client
                     .add_channel(
@@ -398,7 +391,7 @@ impl DeployCommand {
         }
 
         // Are all remaining required variables satisfied by variables already in the cloud?
-        let extant_variables = match self.try_get_app_id_cloud(client, name.to_string()).await {
+        let extant_variables = match client.get_app_id(name).await {
             Ok(Some(app_id)) => match get_variables(client, app_id).await {
                 Ok(variables) => variables,
                 Err(_) => {
@@ -425,83 +418,6 @@ impl DeployCommand {
 
         let list_text = unprovided_variables.join(", ");
         Err(anyhow!("The application requires values for the following variable(s) which have not been set: {list_text}. Use the --variable flag to provide values."))
-    }
-
-    async fn try_get_app_id_cloud(
-        &self,
-        cloud_client: &CloudClient,
-        name: String,
-    ) -> Result<Option<Uuid>> {
-        let apps_vm = cloud_client
-            .list_apps(DEFAULT_APPLIST_PAGE_SIZE, None)
-            .await?;
-        let app = apps_vm.items.iter().find(|&x| x.name == name.clone());
-        match app {
-            Some(a) => Ok(Some(a.id)),
-            None => Ok(None),
-        }
-    }
-
-    async fn get_revision_id_cloud(
-        &self,
-        cloud_client: &CloudClient,
-        version: String,
-        app_id: Uuid,
-    ) -> Result<Uuid> {
-        let mut revisions = cloud_client.list_revisions().await?;
-
-        loop {
-            if let Some(revision) = revisions
-                .items
-                .iter()
-                .find(|&x| x.revision_number == version && x.app_id == app_id)
-            {
-                return Ok(revision.id);
-            }
-
-            if revisions.is_last_page {
-                break;
-            }
-
-            revisions = cloud_client.list_revisions_next(&revisions).await?;
-        }
-
-        Err(anyhow!(
-            "No revision with version {} and app id {}",
-            version,
-            app_id
-        ))
-    }
-
-    async fn get_channel_id_cloud(
-        &self,
-        cloud_client: &CloudClient,
-        name: String,
-        app_id: Uuid,
-    ) -> Result<Uuid> {
-        let mut channels_vm = cloud_client.list_channels().await?;
-
-        loop {
-            if let Some(channel) = channels_vm
-                .items
-                .iter()
-                .find(|&x| x.app_id == app_id && x.name == name.clone())
-            {
-                return Ok(channel.id);
-            }
-
-            if channels_vm.is_last_page {
-                break;
-            }
-
-            channels_vm = cloud_client.list_channels_next(&channels_vm).await?;
-        }
-
-        Err(anyhow!(
-            "No channel with app_id {} and name {}",
-            app_id,
-            name
-        ))
     }
 
     async fn push_oci(

@@ -8,4 +8,3 @@ pub const CLOUD_URL_ENV: &str = "CLOUD_URL";
 pub const DEPLOYMENT_ENV_NAME_ENV: &str = "FERMYON_DEPLOYMENT_ENVIRONMENT";
 pub const TOKEN: &str = "TOKEN";
 pub const SPIN_AUTH_TOKEN: &str = "SPIN_AUTH_TOKEN";
-pub const DEFAULT_APPLIST_PAGE_SIZE: i32 = 50;
