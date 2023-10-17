@@ -12,7 +12,6 @@ use cloud_openapi::models::{
 use oci_distribution::{token_cache, Reference, RegistryOperation};
 use spin_common::{arg_parser::parse_kv, sloth};
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
-use spin_manifest::ApplicationTrigger;
 use tokio::fs;
 use tracing::instrument;
 
@@ -303,45 +302,22 @@ impl DeployCommand {
     async fn load_cloud_app(&self, working_dir: &Path) -> Result<DeployableApp, anyhow::Error> {
         let app_source = self.resolve_app_source();
 
-        match &app_source {
+        let locked_app = match &app_source {
             AppSource::File(app_file) => {
-                let cfg_any = spin_loader::local::raw_manifest_from_file(&app_file).await?;
-                let cfg = cfg_any.into_v1();
-
-                match cfg.info.trigger {
-                    ApplicationTrigger::Http(_) => {}
-                    ApplicationTrigger::Redis(_) => bail!("Redis triggers are not supported"),
-                    ApplicationTrigger::External(_) => bail!("External triggers are not supported"),
-                }
-
-                let app = spin_loader::from_file(app_file, Some(working_dir)).await?;
-                let locked_app = spin_trigger::locked::build_locked_app(app, working_dir)?;
-
-                Ok(DeployableApp(locked_app))
+                spin_loader::from_file(
+                    &app_file,
+                    spin_loader::FilesMountStrategy::Copy(working_dir.to_owned()),
+                )
+                .await?
             }
             AppSource::OciRegistry(reference) => {
                 let mut oci_client = spin_oci::Client::new(false, None)
                     .await
                     .context("cannot create registry client")?;
 
-                let locked_app = spin_oci::OciLoader::new(working_dir)
+                spin_oci::OciLoader::new(working_dir)
                     .load_app(&mut oci_client, reference)
-                    .await?;
-
-                let unsupported_triggers = locked_app
-                    .triggers
-                    .iter()
-                    .filter(|t| t.trigger_type != "http")
-                    .map(|t| format!("'{}'", t.trigger_type))
-                    .collect::<Vec<_>>();
-                if !unsupported_triggers.is_empty() {
-                    bail!(
-                        "Non-HTTP triggers are not supported - app uses {}",
-                        unsupported_triggers.join(", ")
-                    );
-                }
-
-                Ok(DeployableApp(locked_app))
+                    .await?
             }
             AppSource::None => {
                 anyhow::bail!("Default file '{DEFAULT_MANIFEST_FILE}' not found.");
@@ -349,7 +325,22 @@ impl DeployCommand {
             AppSource::Unresolvable(err) => {
                 anyhow::bail!("{err}");
             }
+        };
+
+        let unsupported_triggers = locked_app
+            .triggers
+            .iter()
+            .filter(|t| t.trigger_type != "http")
+            .map(|t| format!("'{}'", t.trigger_type))
+            .collect::<Vec<_>>();
+        if !unsupported_triggers.is_empty() {
+            bail!(
+                "Non-HTTP triggers are not supported - app uses {}",
+                unsupported_triggers.join(", ")
+            );
         }
+
+        Ok(DeployableApp(locked_app))
     }
 
     async fn validate_deployment_environment(
