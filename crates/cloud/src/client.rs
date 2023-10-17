@@ -3,11 +3,14 @@ use async_trait::async_trait;
 use cloud_openapi::{
     apis::{
         self,
-        apps_api::{api_apps_get, api_apps_id_delete, api_apps_id_get, api_apps_post},
+        apps_api::{
+            api_apps_get, api_apps_id_delete, api_apps_id_get, api_apps_id_logs_get,
+            api_apps_id_logs_raw_get, api_apps_post,
+        },
         auth_tokens_api::api_auth_tokens_refresh_post,
         channels_api::{
-            api_channels_get, api_channels_id_delete, api_channels_id_get,
-            api_channels_id_logs_get, api_channels_post, ApiChannelsIdPatchError,
+            api_channels_get, api_channels_id_delete, api_channels_id_get, api_channels_post,
+            ApiChannelsIdPatchError,
         },
         configuration::{ApiKey, Configuration},
         device_codes_api::api_device_codes_post,
@@ -28,8 +31,9 @@ use cloud_openapi::{
         CreateAppCommand, CreateChannelCommand, CreateDeviceCodeCommand, CreateKeyValuePairCommand,
         CreateSqlDatabaseCommand, CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand,
         DeleteVariablePairCommand, DeviceCodeItem, EnvironmentVariableItem,
-        ExecuteSqlStatementCommand, GetChannelLogsVm, GetSqlDatabasesQuery, GetVariablesQuery,
-        RefreshTokenCommand, RegisterRevisionCommand, ResourceLabel, RevisionItemPage, TokenInfo,
+        ExecuteSqlStatementCommand, GetAppLogsVm, GetAppRawLogsVm, GetSqlDatabasesQuery,
+        GetVariablesQuery, RefreshTokenCommand, RegisterRevisionCommand, ResourceLabel,
+        RevisionItemPage, TokenInfo,
     },
 };
 use reqwest::header;
@@ -173,9 +177,27 @@ impl CloudClientInterface for Client {
             None,
             None,
             None,
+            None,
         )
         .await
         .map_err(format_response_error)
+    }
+
+    async fn app_logs(&self, id: String) -> Result<GetAppLogsVm> {
+        api_apps_id_logs_get(&self.configuration, &id, None, None, None)
+            .await
+            .map_err(format_response_error)
+    }
+
+    async fn app_logs_raw(
+        &self,
+        id: String,
+        max_lines: Option<i32>,
+        since: Option<String>,
+    ) -> Result<GetAppRawLogsVm> {
+        api_apps_id_logs_raw_get(&self.configuration, &id, max_lines, since.as_deref(), None)
+            .await
+            .map_err(format_response_error)
     }
 
     async fn get_channel_by_id(&self, id: &str) -> Result<ChannelItem> {
@@ -298,12 +320,6 @@ impl CloudClientInterface for Client {
 
     async fn remove_channel(&self, id: String) -> Result<()> {
         api_channels_id_delete(&self.configuration, &id, None)
-            .await
-            .map_err(format_response_error)
-    }
-
-    async fn channel_logs(&self, id: String) -> Result<GetChannelLogsVm> {
-        api_channels_id_logs_get(&self.configuration, &id, None, None)
             .await
             .map_err(format_response_error)
     }
