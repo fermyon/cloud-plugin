@@ -10,7 +10,7 @@ use cloud_openapi::models::{
     ResourceLabel,
 };
 use oci_distribution::{token_cache, Reference, RegistryOperation};
-use spin_common::{arg_parser::parse_kv, sloth};
+use spin_common::arg_parser::parse_kv;
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
 use spin_manifest::ApplicationTrigger;
 use tokio::fs;
@@ -892,15 +892,6 @@ fn build_app_base_url(app_domain: &str, cloud_url: &Url) -> Result<Url> {
     })
 }
 
-async fn check_healthz(base_url: &Url) -> Result<()> {
-    let healthz_url = base_url.join("healthz")?;
-    reqwest::get(healthz_url)
-        .await?
-        .error_for_status()
-        .with_context(|| format!("Server {} is unhealthy", base_url))?;
-    Ok(())
-}
-
 const READINESS_POLL_INTERVAL_SECS: u64 = 2;
 
 enum Destination {
@@ -1126,14 +1117,6 @@ pub async fn login_connection(deployment_env_id: Option<&str>) -> Result<LoginCo
             }
         }
     }
-
-    let sloth_guard = sloth::warn_if_slothful(
-        2500,
-        format!("Checking status ({})\n", login_connection.url),
-    );
-    check_healthz(&login_connection.url).await?;
-    // Server has responded - we don't want to keep the sloth timer running.
-    drop(sloth_guard);
 
     Ok(login_connection)
 }
