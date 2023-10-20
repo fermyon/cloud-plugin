@@ -207,9 +207,6 @@ impl DeployCommand {
         self.validate_deployment_environment(&application, &client)
             .await?;
 
-        // TODO: can remove once spin_oci inlines small files by default
-        std::env::set_var("SPIN_OCI_SKIP_INLINED_FILES", "true");
-
         let digest = self
             .push_oci(
                 application.clone(),
