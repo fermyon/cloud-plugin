@@ -850,7 +850,7 @@ dependencies = [
 
 [[package]]
 name = "cloud"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "cloud-openapi",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "cloud-plugin"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "chrono",
