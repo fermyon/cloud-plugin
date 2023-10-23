@@ -340,6 +340,8 @@ impl DeployCommand {
             );
         }
 
+        let locked_app = ensure_http_base_set(locked_app);
+
         Ok(DeployableApp(locked_app))
     }
 
@@ -453,6 +455,25 @@ impl DeployCommand {
     async fn run_spin_build(&self) -> Result<()> {
         self.resolve_app_source().build().await
     }
+}
+
+// Spin now allows HTTP apps to omit the base path, but Cloud
+// doesn't yet like this. This works around that by defaulting
+// base if not set. (We don't check trigger type because by the
+// time this is called we know it's HTTP.)
+fn ensure_http_base_set(
+    mut locked_app: spin_app::locked::LockedApp,
+) -> spin_app::locked::LockedApp {
+    if let Some(trigger) = locked_app
+        .metadata
+        .entry("trigger")
+        .or_insert_with(|| serde_json::Value::Object(Default::default()))
+        .as_object_mut()
+    {
+        trigger.entry("base").or_insert_with(|| "/".into());
+    }
+
+    locked_app
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1185,5 +1206,66 @@ mod test {
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             sanitize_app_version("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b")
         );
+    }
+
+    fn deploy_cmd_for_test_file(filename: &str) -> DeployCommand {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("testdata")
+            .join(filename);
+        DeployCommand {
+            app_source: None,
+            file_source: Some(path),
+            registry_source: None,
+            build: false,
+            readiness_timeout_secs: 60,
+            deployment_env_id: None,
+            key_values: vec![],
+            variables: vec![],
+        }
+    }
+
+    fn get_trigger_base(mut app: DeployableApp) -> String {
+        let serde_json::map::Entry::Occupied(trigger) = app.0.metadata.entry("trigger") else {
+            panic!("Expected trigger metadata but entry was vacant");
+        };
+        let base = trigger
+            .get()
+            .as_object()
+            .unwrap()
+            .get("base")
+            .expect("Manifest should have had a base but didn't");
+        base.as_str()
+            .expect("HTTP base should have been a string but wasn't")
+            .to_owned()
+    }
+
+    #[tokio::test]
+    async fn if_http_base_is_set_then_it_is_respected() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let cmd = deploy_cmd_for_test_file("based_v1.toml");
+        let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
+        let base = get_trigger_base(app);
+        assert_eq!("/base", base);
+
+        let cmd = deploy_cmd_for_test_file("based_v2.toml");
+        let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
+        let base = get_trigger_base(app);
+        assert_eq!("/base", base);
+    }
+
+    #[tokio::test]
+    async fn if_http_base_is_not_set_then_it_is_inserted() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let cmd = deploy_cmd_for_test_file("unbased_v1.toml");
+        let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
+        let base = get_trigger_base(app);
+        assert_eq!("/", base);
+
+        let cmd = deploy_cmd_for_test_file("unbased_v2.toml");
+        let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
+        let base = get_trigger_base(app);
+        assert_eq!("/", base);
     }
 }
