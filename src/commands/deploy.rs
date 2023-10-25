@@ -1010,9 +1010,16 @@ fn print_available_routes(app_base_url: &Url, base: &str, routes: &[HttpRoute]) 
     let app_base_url = app_base_url.to_string();
     let route_prefix = app_base_url.strip_suffix('/').unwrap_or(&app_base_url);
 
+    // Ensure base starts with a /
+    let base = if !base.starts_with('/') {
+        format!("/{base}")
+    } else {
+        base.to_owned()
+    };
+
     println!("Available Routes:");
     for component in routes {
-        let route = RoutePattern::from(base, &component.route_pattern);
+        let route = RoutePattern::from(&base, &component.route_pattern);
         println!("  {}: {}{}", component.id, route_prefix, route);
         if let Some(description) = &component.description {
             println!("    {}", description);
