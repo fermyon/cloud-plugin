@@ -10,7 +10,7 @@ use crate::opts::*;
 /// Manage how apps and resources are linked together
 #[derive(Parser, Debug)]
 pub enum LinkCommand {
-    /// Link an app to a NoOps SQL database
+    /// Link an app to a SQLite database
     Sqlite(SqliteLinkCommand),
 }
 
@@ -138,7 +138,7 @@ impl SqliteLinkCommand {
 /// Manage unlinking apps and resources
 #[derive(Parser, Debug)]
 pub enum UnlinkCommand {
-    /// Unlink an app from a NoOps SQL database
+    /// Unlink an app from a SQLite database
     Sqlite(SqliteUnlinkCommand),
 }
 
