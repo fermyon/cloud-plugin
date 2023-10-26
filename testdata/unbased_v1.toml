@@ -1,0 +1,10 @@
+spin_manifest_version = "1"
+name = "based-v1"
+version = "0.0.1"
+trigger = { type = "http" }
+
+[[component]]
+id = "dummy"
+source = "dummy.not-actually-wasm"
+[component.trigger]
+route = "/dummy"

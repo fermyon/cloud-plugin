@@ -12,7 +12,6 @@ use cloud_openapi::models::{
 use oci_distribution::{token_cache, Reference, RegistryOperation};
 use spin_common::arg_parser::parse_kv;
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
-use spin_manifest::ApplicationTrigger;
 use tokio::fs;
 use tracing::instrument;
 
@@ -303,45 +302,22 @@ impl DeployCommand {
     async fn load_cloud_app(&self, working_dir: &Path) -> Result<DeployableApp, anyhow::Error> {
         let app_source = self.resolve_app_source();
 
-        match &app_source {
+        let locked_app = match &app_source {
             AppSource::File(app_file) => {
-                let cfg_any = spin_loader::local::raw_manifest_from_file(&app_file).await?;
-                let cfg = cfg_any.into_v1();
-
-                match cfg.info.trigger {
-                    ApplicationTrigger::Http(_) => {}
-                    ApplicationTrigger::Redis(_) => bail!("Redis triggers are not supported"),
-                    ApplicationTrigger::External(_) => bail!("External triggers are not supported"),
-                }
-
-                let app = spin_loader::from_file(app_file, Some(working_dir)).await?;
-                let locked_app = spin_trigger::locked::build_locked_app(app, working_dir)?;
-
-                Ok(DeployableApp(locked_app))
+                spin_loader::from_file(
+                    &app_file,
+                    spin_loader::FilesMountStrategy::Copy(working_dir.to_owned()),
+                )
+                .await?
             }
             AppSource::OciRegistry(reference) => {
                 let mut oci_client = spin_oci::Client::new(false, None)
                     .await
                     .context("cannot create registry client")?;
 
-                let locked_app = spin_oci::OciLoader::new(working_dir)
+                spin_oci::OciLoader::new(working_dir)
                     .load_app(&mut oci_client, reference)
-                    .await?;
-
-                let unsupported_triggers = locked_app
-                    .triggers
-                    .iter()
-                    .filter(|t| t.trigger_type != "http")
-                    .map(|t| format!("'{}'", t.trigger_type))
-                    .collect::<Vec<_>>();
-                if !unsupported_triggers.is_empty() {
-                    bail!(
-                        "Non-HTTP triggers are not supported - app uses {}",
-                        unsupported_triggers.join(", ")
-                    );
-                }
-
-                Ok(DeployableApp(locked_app))
+                    .await?
             }
             AppSource::None => {
                 anyhow::bail!("Default file '{DEFAULT_MANIFEST_FILE}' not found.");
@@ -349,7 +325,24 @@ impl DeployCommand {
             AppSource::Unresolvable(err) => {
                 anyhow::bail!("{err}");
             }
+        };
+
+        let unsupported_triggers = locked_app
+            .triggers
+            .iter()
+            .filter(|t| t.trigger_type != "http")
+            .map(|t| format!("'{}'", t.trigger_type))
+            .collect::<Vec<_>>();
+        if !unsupported_triggers.is_empty() {
+            bail!(
+                "Non-HTTP triggers are not supported - app uses {}",
+                unsupported_triggers.join(", ")
+            );
         }
+
+        let locked_app = ensure_http_base_set(locked_app);
+
+        Ok(DeployableApp(locked_app))
     }
 
     async fn validate_deployment_environment(
@@ -462,6 +455,25 @@ impl DeployCommand {
     async fn run_spin_build(&self) -> Result<()> {
         self.resolve_app_source().build().await
     }
+}
+
+// Spin now allows HTTP apps to omit the base path, but Cloud
+// doesn't yet like this. This works around that by defaulting
+// base if not set. (We don't check trigger type because by the
+// time this is called we know it's HTTP.)
+fn ensure_http_base_set(
+    mut locked_app: spin_app::locked::LockedApp,
+) -> spin_app::locked::LockedApp {
+    if let Some(trigger) = locked_app
+        .metadata
+        .entry("trigger")
+        .or_insert_with(|| serde_json::Value::Object(Default::default()))
+        .as_object_mut()
+    {
+        trigger.entry("base").or_insert_with(|| "/".into());
+    }
+
+    locked_app
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -989,9 +1001,16 @@ fn print_available_routes(app_base_url: &Url, base: &str, routes: &[HttpRoute]) 
     let app_base_url = app_base_url.to_string();
     let route_prefix = app_base_url.strip_suffix('/').unwrap_or(&app_base_url);
 
+    // Ensure base starts with a /
+    let base = if !base.starts_with('/') {
+        format!("/{base}")
+    } else {
+        base.to_owned()
+    };
+
     println!("Available Routes:");
     for component in routes {
-        let route = RoutePattern::from(base, &component.route_pattern);
+        let route = RoutePattern::from(&base, &component.route_pattern);
         println!("  {}: {}{}", component.id, route_prefix, route);
         if let Some(description) = &component.description {
             println!("    {}", description);
@@ -1177,5 +1196,66 @@ mod test {
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             sanitize_app_version("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855e3b")
         );
+    }
+
+    fn deploy_cmd_for_test_file(filename: &str) -> DeployCommand {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("testdata")
+            .join(filename);
+        DeployCommand {
+            app_source: None,
+            file_source: Some(path),
+            registry_source: None,
+            build: false,
+            readiness_timeout_secs: 60,
+            deployment_env_id: None,
+            key_values: vec![],
+            variables: vec![],
+        }
+    }
+
+    fn get_trigger_base(mut app: DeployableApp) -> String {
+        let serde_json::map::Entry::Occupied(trigger) = app.0.metadata.entry("trigger") else {
+            panic!("Expected trigger metadata but entry was vacant");
+        };
+        let base = trigger
+            .get()
+            .as_object()
+            .unwrap()
+            .get("base")
+            .expect("Manifest should have had a base but didn't");
+        base.as_str()
+            .expect("HTTP base should have been a string but wasn't")
+            .to_owned()
+    }
+
+    #[tokio::test]
+    async fn if_http_base_is_set_then_it_is_respected() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let cmd = deploy_cmd_for_test_file("based_v1.toml");
+        let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
+        let base = get_trigger_base(app);
+        assert_eq!("/base", base);
+
+        let cmd = deploy_cmd_for_test_file("based_v2.toml");
+        let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
+        let base = get_trigger_base(app);
+        assert_eq!("/base", base);
+    }
+
+    #[tokio::test]
+    async fn if_http_base_is_not_set_then_it_is_inserted() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let cmd = deploy_cmd_for_test_file("unbased_v1.toml");
+        let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
+        let base = get_trigger_base(app);
+        assert_eq!("/", base);
+
+        let cmd = deploy_cmd_for_test_file("unbased_v2.toml");
+        let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
+        let base = get_trigger_base(app);
+        assert_eq!("/", base);
     }
 }
