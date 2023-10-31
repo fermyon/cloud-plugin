@@ -13,19 +13,19 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-/// Manage Fermyon Cloud NoOps SQL databases
+/// Manage Fermyon Cloud SQLite databases
 #[derive(Parser, Debug)]
-#[clap(about = "Manage Fermyon Cloud NoOps SQL databases")]
+#[clap(about = "Manage Fermyon Cloud SQLite databases")]
 pub enum SqliteCommand {
-    /// Create a NoOps SQL database
+    /// Create a SQLite database
     Create(CreateCommand),
-    /// Delete a NoOps SQL database
+    /// Delete a SQLite database
     Delete(DeleteCommand),
-    /// Execute SQLite statements against a NoOps SQL database
+    /// Execute SQL statements against a SQLite database
     Execute(ExecuteCommand),
-    /// List all NoOps SQL databases of a user
+    /// List all your SQLite databases
     List(ListCommand),
-    /// Rename a NoOps SQL database
+    /// Rename a SQLite database
     Rename(RenameCommand),
 }
 
