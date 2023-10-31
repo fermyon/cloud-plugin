@@ -32,17 +32,15 @@ semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.82"
 sha2 = "0.10.2"
-spin-app = { git = "https://github.com/fermyon/spin", rev = "57b004cf7fa2b6ad545bd8292f2745ed6424f05b" }
-spin-common = { git = "https://github.com/fermyon/spin", rev = "57b004cf7fa2b6ad545bd8292f2745ed6424f05b" }
-spin-loader = { git = "https://github.com/fermyon/spin", rev = "57b004cf7fa2b6ad545bd8292f2745ed6424f05b" }
-spin-manifest = { git = "https://github.com/fermyon/spin", rev = "57b004cf7fa2b6ad545bd8292f2745ed6424f05b" }
-spin-http = { git = "https://github.com/fermyon/spin", rev = "57b004cf7fa2b6ad545bd8292f2745ed6424f05b" }
-spin-oci = { git = "https://github.com/fermyon/spin", rev = "57b004cf7fa2b6ad545bd8292f2745ed6424f05b" }
-spin-trigger = { git = "https://github.com/fermyon/spin", rev = "57b004cf7fa2b6ad545bd8292f2745ed6424f05b" }
-spin-trigger-http = { git = "https://github.com/fermyon/spin", rev = "57b004cf7fa2b6ad545bd8292f2745ed6424f05b" }
+spin-common = { git = "https://github.com/fermyon/spin", rev = "561b3e132b99537d823b33984e371bb8326ad3e6" }
+spin-loader = { git = "https://github.com/fermyon/spin", rev = "561b3e132b99537d823b33984e371bb8326ad3e6" }
+spin-locked-app = { git = "https://github.com/fermyon/spin", rev = "561b3e132b99537d823b33984e371bb8326ad3e6" }
+spin-http = { git = "https://github.com/fermyon/spin", rev = "561b3e132b99537d823b33984e371bb8326ad3e6", default-features = false }
+spin-manifest = { git = "https://github.com/fermyon/spin", rev = "561b3e132b99537d823b33984e371bb8326ad3e6" }
+spin-oci = { git = "https://github.com/fermyon/spin", rev = "561b3e132b99537d823b33984e371bb8326ad3e6" }
 terminal = { git = "https://github.com/fermyon/spin", rev = "57b004cf7fa2b6ad545bd8292f2745ed6424f05b" }
 tempfile = "3.3.0"
-url = "2.3"
+url = { version = "2.3", features = ["serde"] }
 uuid = { version = "1.3", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -65,8 +63,3 @@ vergen = { version = "^8.2.1", default-features = false, features = [
 [dev-dependencies]
 mockall = "0.11"
 cloud = { path = "crates/cloud", features = ["mocks"] }
-
-[patch.crates-io]
-# Using fork to bump nested dep sqlite3-parser to 0.9.0 for Windows build fix
-# Pending related upstream PR https://github.com/libsql/libsql-client-rs/pull/32
-libsql-client = { git = "https://github.com/vdice/libsql-client-rs", branch = "chore/bump-deps"}

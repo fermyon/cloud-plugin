@@ -12,6 +12,7 @@ use cloud_openapi::models::{
 use oci_distribution::{token_cache, Reference, RegistryOperation};
 use spin_common::arg_parser::parse_kv;
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
+use spin_locked_app::locked;
 use tokio::fs;
 use tracing::instrument;
 
@@ -461,9 +462,7 @@ impl DeployCommand {
 // doesn't yet like this. This works around that by defaulting
 // base if not set. (We don't check trigger type because by the
 // time this is called we know it's HTTP.)
-fn ensure_http_base_set(
-    mut locked_app: spin_app::locked::LockedApp,
-) -> spin_app::locked::LockedApp {
+fn ensure_http_base_set(mut locked_app: locked::LockedApp) -> locked::LockedApp {
     if let Some(trigger) = locked_app
         .metadata
         .entry("trigger")
@@ -776,9 +775,9 @@ async fn link_databases(
 }
 
 #[derive(Clone)]
-struct DeployableApp(spin_app::locked::LockedApp);
+struct DeployableApp(locked::LockedApp);
 
-struct DeployableComponent(spin_app::locked::LockedComponent);
+struct DeployableComponent(locked::LockedComponent);
 
 impl DeployableApp {
     fn name(&self) -> anyhow::Result<&str> {
@@ -831,7 +830,7 @@ impl DeployableApp {
         (base, routes)
     }
 
-    fn http_route(&self, trigger: &spin_app::locked::LockedTrigger) -> Option<HttpRoute> {
+    fn http_route(&self, trigger: &locked::LockedTrigger) -> Option<HttpRoute> {
         if &trigger.trigger_type != "http" {
             return None;
         }
