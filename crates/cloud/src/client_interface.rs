@@ -2,8 +2,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use cloud_openapi::models::{
     AppItem, AppItemPage, ChannelItem, ChannelItemPage, ChannelRevisionSelectionStrategy, Database,
-    DeviceCodeItem, EnvironmentVariableItem, GetChannelLogsVm, ResourceLabel, RevisionItemPage,
-    TokenInfo,
+    DeviceCodeItem, EnvironmentVariableItem, GetAppLogsVm, GetAppRawLogsVm, ResourceLabel,
+    RevisionItemPage, TokenInfo,
 };
 
 use std::string::String;
@@ -25,6 +25,15 @@ pub trait CloudClientInterface: Send + Sync {
     async fn get_app(&self, id: String) -> Result<AppItem>;
 
     async fn list_apps(&self, page_size: i32, page_index: Option<i32>) -> Result<AppItemPage>;
+
+    async fn app_logs(&self, id: String) -> Result<GetAppLogsVm>;
+
+    async fn app_logs_raw(
+        &self,
+        id: String,
+        max_lines: Option<i32>,
+        since: Option<String>,
+    ) -> Result<GetAppRawLogsVm>;
 
     async fn get_channel_by_id(&self, id: &str) -> Result<ChannelItem>;
 
@@ -52,8 +61,6 @@ pub trait CloudClientInterface: Send + Sync {
     ) -> anyhow::Result<()>;
 
     async fn remove_channel(&self, id: String) -> Result<()>;
-
-    async fn channel_logs(&self, id: String) -> Result<GetChannelLogsVm>;
 
     async fn add_revision(
         &self,
