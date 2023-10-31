@@ -144,17 +144,13 @@ fn print_logs(entries: &[Entry], show_timestamp: bool) -> Option<&str> {
                 continue;
             };
 
-            match &log_entry.time {
-                Some(time) => {
-                    if show_timestamp {
-                        println!("[{time}] {log}");
-                    } else {
-                        println!("{log}");
-                    }
-
-                    since = Some(time.as_str());
+            if let Some(time) = &log_entry.time {
+                if show_timestamp {
+                    println!("[{time}] {log}");
+                } else {
+                    println!("{log}");
                 }
-                None => (),
+                since = Some(time.as_str());
             }
         }
     }
