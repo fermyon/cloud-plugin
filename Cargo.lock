@@ -1752,7 +1752,7 @@ dependencies = [
 [[package]]
 name = "outbound-http"
 version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=d816b512cc541138d489fcbd29ec535b9958f31e#d816b512cc541138d489fcbd29ec535b9958f31e"
+source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
 dependencies = [
  "anyhow",
  "http",
@@ -2406,7 +2406,7 @@ dependencies = [
 [[package]]
 name = "spin-common"
 version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=d816b512cc541138d489fcbd29ec535b9958f31e#d816b512cc541138d489fcbd29ec535b9958f31e"
+source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
 dependencies = [
  "anyhow",
  "dirs 4.0.0",
@@ -2419,7 +2419,7 @@ dependencies = [
 [[package]]
 name = "spin-http"
 version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=d816b512cc541138d489fcbd29ec535b9958f31e#d816b512cc541138d489fcbd29ec535b9958f31e"
+source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
 dependencies = [
  "anyhow",
  "http",
@@ -2435,7 +2435,7 @@ dependencies = [
 [[package]]
 name = "spin-loader"
 version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=d816b512cc541138d489fcbd29ec535b9958f31e#d816b512cc541138d489fcbd29ec535b9958f31e"
+source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2473,7 +2473,7 @@ dependencies = [
 [[package]]
 name = "spin-locked-app"
 version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=d816b512cc541138d489fcbd29ec535b9958f31e#d816b512cc541138d489fcbd29ec535b9958f31e"
+source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2487,7 +2487,7 @@ dependencies = [
 [[package]]
 name = "spin-manifest"
 version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=d816b512cc541138d489fcbd29ec535b9958f31e#d816b512cc541138d489fcbd29ec535b9958f31e"
+source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
 dependencies = [
  "anyhow",
  "indexmap 1.9.3",
@@ -2502,7 +2502,7 @@ dependencies = [
 [[package]]
 name = "spin-oci"
 version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=d816b512cc541138d489fcbd29ec535b9958f31e#d816b512cc541138d489fcbd29ec535b9958f31e"
+source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -2530,7 +2530,7 @@ dependencies = [
 [[package]]
 name = "spin-outbound-networking"
 version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=d816b512cc541138d489fcbd29ec535b9958f31e#d816b512cc541138d489fcbd29ec535b9958f31e"
+source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
 dependencies = [
  "anyhow",
  "spin-locked-app",
@@ -2541,7 +2541,7 @@ dependencies = [
 [[package]]
 name = "spin-serde"
 version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=d816b512cc541138d489fcbd29ec535b9958f31e#d816b512cc541138d489fcbd29ec535b9958f31e"
+source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
 dependencies = [
  "base64 0.21.5",
  "serde",
@@ -2682,7 +2682,7 @@ dependencies = [
 [[package]]
 name = "terminal"
 version = "0.1.0"
-source = "git+https://github.com/fermyon/spin?rev=d816b512cc541138d489fcbd29ec535b9958f31e#d816b512cc541138d489fcbd29ec535b9958f31e"
+source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
 dependencies = [
  "atty",
  "once_cell",
