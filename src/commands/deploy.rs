@@ -342,6 +342,7 @@ impl DeployCommand {
         }
 
         let locked_app = ensure_http_base_set(locked_app);
+        let locked_app = ensure_plugin_version_set(locked_app);
 
         Ok(DeployableApp(locked_app))
     }
@@ -472,6 +473,14 @@ fn ensure_http_base_set(mut locked_app: locked::LockedApp) -> locked::LockedApp 
         trigger.entry("base").or_insert_with(|| "/".into());
     }
 
+    locked_app
+}
+
+// Insert cloud plugin version into locked app metadata
+fn ensure_plugin_version_set(mut locked_app: locked::LockedApp) -> locked::LockedApp {
+    locked_app
+        .metadata
+        .insert("cloud_plugin_version".to_owned(), crate::VERSION.into());
     locked_app
 }
 
@@ -1256,5 +1265,15 @@ mod test {
         let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
         let base = get_trigger_base(app);
         assert_eq!("/", base);
+    }
+
+    #[tokio::test]
+    async fn plugin_version_should_be_set() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let cmd = deploy_cmd_for_test_file("minimal_v2.toml");
+        let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
+        let version = app.0.metadata.get("cloud_plugin_version").unwrap();
+        assert_eq!(crate::VERSION, version);
     }
 }
