@@ -1,6 +1,5 @@
 use anyhow::{bail, Context, Result};
 use cloud::{
-    client::{Client as CloudClient},
     CloudClientInterface,
 };
 use cloud_openapi::models::{
@@ -34,7 +33,7 @@ enum ExistingAppDatabaseSelection {
 
 async fn get_database_selection_for_existing_app(
     name: &str,
-    client: &CloudClient,
+    client: &impl CloudClientInterface,
     resource_label: &ResourceLabel,
 ) -> Result<ExistingAppDatabaseSelection> {
     let databases = client.get_databases(None).await?;
@@ -50,7 +49,7 @@ async fn get_database_selection_for_existing_app(
 
 async fn get_database_selection_for_new_app(
     name: &str,
-    client: &CloudClient,
+    client: &impl CloudClientInterface,
     label: &str,
 ) -> Result<DatabaseSelection> {
     let databases = client.get_databases(None).await?;
@@ -142,7 +141,7 @@ Other apps can use different labels to refer to the same database."#
 // linked to the app once it is created.
 // Returns None if the user canceled terminal interaction
 pub(super) async fn create_databases_for_new_app(
-    client: &CloudClient,
+    client: &impl CloudClientInterface,
     name: &str,
     labels: HashSet<String>,
 ) -> anyhow::Result<Option<Vec<(String, String)>>> {
@@ -165,7 +164,7 @@ pub(super) async fn create_databases_for_new_app(
 // Loops through an updated app's manifest and creates and links any newly referenced databases.
 // Returns None if the user canceled terminal interaction
 pub(super) async fn create_and_link_databases_for_existing_app(
-    client: &CloudClient,
+    client: &impl CloudClientInterface,
     app_name: &str,
     app_id: Uuid,
     labels: HashSet<String>,
@@ -200,7 +199,7 @@ pub(super) async fn create_and_link_databases_for_existing_app(
 }
 
 pub(super) async fn link_databases(
-    client: &CloudClient,
+    client: &impl CloudClientInterface,
     app_name: String,
     app_id: Uuid,
     database_labels: Vec<(String, String)>,
