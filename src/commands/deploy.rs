@@ -172,6 +172,7 @@ impl DeployCommand {
         };
 
         let client = CloudClient::new(connection_config.clone());
+        let interact = database::Interactive;
 
         let dir = tempfile::tempdir()?;
 
@@ -196,7 +197,7 @@ impl DeployCommand {
             Some(app_id) => {
                 let labels = application.sqlite_databases();
                 if !labels.is_empty()
-                    && create_and_link_databases_for_existing_app(&client, &name, app_id, labels)
+                    && create_and_link_databases_for_existing_app(&client, &name, app_id, labels, &interact)
                         .await?
                         .is_none()
                 {
@@ -236,7 +237,7 @@ impl DeployCommand {
             None => {
                 let labels = application.sqlite_databases();
                 let databases_to_link =
-                    match create_databases_for_new_app(&client, &name, labels).await? {
+                    match create_databases_for_new_app(&client, &name, labels, &interact).await? {
                         Some(dbs) => dbs,
                         None => return Ok(()), // User canceled terminal interaction
                     };

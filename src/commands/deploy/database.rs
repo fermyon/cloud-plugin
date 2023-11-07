@@ -19,7 +19,7 @@ use crate::{
 use crate::commands::sqlite::database_has_link;
 
 /// A user's selection of a database to link to a label
-enum DatabaseSelection {
+pub(super) enum DatabaseSelection {
     Existing(String),
     New(String),
     Cancelled,
@@ -35,6 +35,7 @@ async fn get_database_selection_for_existing_app(
     name: &str,
     client: &impl CloudClientInterface,
     resource_label: &ResourceLabel,
+    interact: &impl InteractionStrategy,
 ) -> Result<ExistingAppDatabaseSelection> {
     let databases = client.get_databases(None).await?;
     if databases
@@ -43,7 +44,7 @@ async fn get_database_selection_for_existing_app(
     {
         return Ok(ExistingAppDatabaseSelection::AlreadyLinked);
     }
-    let selection = prompt_database_selection(name, &resource_label.label, databases)?;
+    let selection = interact.prompt_database_selection(name, &resource_label.label, databases)?;
     Ok(ExistingAppDatabaseSelection::NotYetLinked(selection))
 }
 
@@ -51,89 +52,108 @@ async fn get_database_selection_for_new_app(
     name: &str,
     client: &impl CloudClientInterface,
     label: &str,
+    interact: &impl InteractionStrategy,
 ) -> Result<DatabaseSelection> {
     let databases = client.get_databases(None).await?;
-    prompt_database_selection(name, label, databases)
+    interact.prompt_database_selection(name, label, databases)
 }
 
-fn prompt_database_selection(
-    name: &str,
-    label: &str,
-    databases: Vec<Database>,
-) -> Result<DatabaseSelection> {
-    let prompt = format!(
-        r#"App "{name}" accesses a database labeled "{label}"
-Would you like to link an existing database or create a new database?"#
-    );
-    let existing_opt = "Use an existing database and link app to it";
-    let create_opt = "Create a new database and link the app to it";
-    let opts = vec![existing_opt, create_opt];
-    let index = match dialoguer::Select::new()
-        .with_prompt(prompt)
-        .items(&opts)
-        .default(1)
-        .interact_opt()?
-    {
-        Some(i) => i,
-        None => return Ok(DatabaseSelection::Cancelled),
-    };
-    match index {
-        0 => prompt_for_existing_database(
-            name,
-            label,
-            databases.into_iter().map(|d| d.name).collect::<Vec<_>>(),
-        ),
-        1 => prompt_link_to_new_database(
-            name,
-            label,
-            databases
-                .iter()
-                .map(|d| d.name.as_str())
-                .collect::<HashSet<_>>(),
-        ),
-        _ => bail!("Choose unavailable option"),
+pub(super) struct Interactive;
+
+pub(super) trait InteractionStrategy {
+    fn prompt_database_selection(
+        &self,
+        name: &str,
+        label: &str,
+        databases: Vec<Database>,
+    ) -> Result<DatabaseSelection>;
+}
+
+impl InteractionStrategy for Interactive {
+    fn prompt_database_selection(
+        &self,
+        name: &str,
+        label: &str,
+        databases: Vec<Database>,
+    ) -> Result<DatabaseSelection> {
+        let prompt = format!(
+            r#"App "{name}" accesses a database labeled "{label}"
+    Would you like to link an existing database or create a new database?"#
+        );
+        let existing_opt = "Use an existing database and link app to it";
+        let create_opt = "Create a new database and link the app to it";
+        let opts = vec![existing_opt, create_opt];
+        let index = match dialoguer::Select::new()
+            .with_prompt(prompt)
+            .items(&opts)
+            .default(1)
+            .interact_opt()?
+        {
+            Some(i) => i,
+            None => return Ok(DatabaseSelection::Cancelled),
+        };
+        match index {
+            0 => self.prompt_for_existing_database(
+                name,
+                label,
+                databases.into_iter().map(|d| d.name).collect::<Vec<_>>(),
+            ),
+            1 => self.prompt_link_to_new_database(
+                name,
+                label,
+                databases
+                    .iter()
+                    .map(|d| d.name.as_str())
+                    .collect::<HashSet<_>>(),
+            ),
+            _ => bail!("Choose unavailable option"),
+        }
     }
 }
 
-fn prompt_for_existing_database(
-    name: &str,
-    label: &str,
-    mut database_names: Vec<String>,
-) -> Result<DatabaseSelection> {
-    let prompt =
-        format!(r#"Which database would you like to link to {name} using the label "{label}""#);
-    let index = match dialoguer::Select::new()
-        .with_prompt(prompt)
-        .items(&database_names)
-        .default(0)
-        .interact_opt()?
-    {
-        Some(i) => i,
-        None => return Ok(DatabaseSelection::Cancelled),
-    };
-    Ok(DatabaseSelection::Existing(database_names.remove(index)))
-}
+impl Interactive {
+    fn prompt_for_existing_database(
+        &self,
+        name: &str,
+        label: &str,
+        mut database_names: Vec<String>,
+    ) -> Result<DatabaseSelection> {
+        let prompt =
+            format!(r#"Which database would you like to link to {name} using the label "{label}""#);
+        let index = match dialoguer::Select::new()
+            .with_prompt(prompt)
+            .items(&database_names)
+            .default(0)
+            .interact_opt()?
+        {
+            Some(i) => i,
+            None => return Ok(DatabaseSelection::Cancelled),
+        };
+        Ok(DatabaseSelection::Existing(database_names.remove(index)))
+    }
 
-fn prompt_link_to_new_database(
-    name: &str,
-    label: &str,
-    existing_names: HashSet<&str>,
-) -> Result<DatabaseSelection> {
-    let generator = RandomNameGenerator::new();
-    let default_name = generator
-        .generate_unique(existing_names, 20)
-        .context("could not generate unique database name")?;
+    fn prompt_link_to_new_database(
+        &self,
+        name: &str,
+        label: &str,
+        existing_names: HashSet<&str>,
+    ) -> Result<DatabaseSelection> {
+        let generator = RandomNameGenerator::new();
+        let default_name = generator
+            .generate_unique(existing_names, 20)
+            .context("could not generate unique database name")?;
 
-    let prompt = format!(
-        r#"What would you like to name your database?
-Note: This name is used when managing your database at the account level. The app "{name}" will refer to this database by the label "{label}".
-Other apps can use different labels to refer to the same database."#
-    );
-    let name = dialoguer::Input::new()
-        .with_prompt(prompt)
-        .default(default_name)
-        .interact_text()?;
-    Ok(DatabaseSelection::New(name))
+        let prompt = format!(
+            r#"What would you like to name your database?
+    Note: This name is used when managing your database at the account level. The app "{name}" will refer to this database by the label "{label}".
+    Other apps can use different labels to refer to the same database."#
+        );
+        let name = dialoguer::Input::new()
+            .with_prompt(prompt)
+            .default(default_name)
+            .interact_text()?;
+        Ok(DatabaseSelection::New(name))
+    }
 }
 
 // Loops through an app's manifest and creates databases.
@@ -144,10 +164,11 @@ pub(super) async fn create_databases_for_new_app(
     client: &impl CloudClientInterface,
     name: &str,
     labels: HashSet<String>,
+    interact: &impl InteractionStrategy,
 ) -> anyhow::Result<Option<Vec<(String, String)>>> {
     let mut databases_to_link = Vec::new();
     for label in labels {
-        let db = match get_database_selection_for_new_app(name, client, &label).await? {
+        let db = match get_database_selection_for_new_app(name, client, &label, interact).await? {
             DatabaseSelection::Existing(db) => db,
             DatabaseSelection::New(db) => {
                 client.create_database(db.clone(), None).await?;
@@ -168,6 +189,7 @@ pub(super) async fn create_and_link_databases_for_existing_app(
     app_name: &str,
     app_id: Uuid,
     labels: HashSet<String>,
+    interact: &impl InteractionStrategy,
 ) -> anyhow::Result<Option<()>> {
     for label in labels {
         let resource_label = ResourceLabel {
@@ -176,7 +198,7 @@ pub(super) async fn create_and_link_databases_for_existing_app(
             app_name: Some(app_name.to_string()),
         };
         if let ExistingAppDatabaseSelection::NotYetLinked(selection) =
-            get_database_selection_for_existing_app(app_name, client, &resource_label).await?
+            get_database_selection_for_existing_app(app_name, client, &resource_label, interact).await?
         {
             match selection {
                 // User canceled terminal interaction
