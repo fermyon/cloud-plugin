@@ -5,9 +5,7 @@ use cloud::{
     client::{Client as CloudClient, ConnectionConfig},
     CloudClientExt, CloudClientInterface,
 };
-use cloud_openapi::models::{
-    ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy,
-};
+use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
 use oci_distribution::{token_cache, Reference, RegistryOperation};
 use spin_common::arg_parser::parse_kv;
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
@@ -37,7 +35,9 @@ use crate::{
 
 mod database;
 
-use database::{create_and_link_databases_for_existing_app, create_databases_for_new_app, link_databases};
+use database::{
+    create_and_link_databases_for_existing_app, create_databases_for_new_app, link_databases,
+};
 
 const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
 pub const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
@@ -112,6 +112,20 @@ pub struct DeployCommand {
     /// Can be used multiple times.
     #[clap(long = "variable", parse(try_from_str = parse_kv))]
     pub variables: Vec<(String, String)>,
+
+    /// Specifies how application labels (such as SQLite databases) should
+    /// be linked if they are not already linked. This is intended for
+    /// non-interactive environments such as release pipelines; therefore,
+    /// if any links are specified, all links must be specified.
+    ///
+    /// Links must be of the form 'sqlite:label=database'. Databases that
+    /// do not exist will be created. To express "create a new database with
+    /// a random name", use the special database '*'. To link all labels
+    /// not specified in other --link flags, use the special label '*'.
+    /// Thus, 'sqlite:*=*' would create a new randomly named database for
+    /// every label that is not already linked.
+    #[clap(long = "link")]
+    pub links: Vec<String>,
 }
 
 impl DeployCommand {
@@ -172,7 +186,7 @@ impl DeployCommand {
         };
 
         let client = CloudClient::new(connection_config.clone());
-        let interact = database::Interactive;
+        let interact = self.interaction_strategy()?;
 
         let dir = tempfile::tempdir()?;
 
@@ -197,9 +211,15 @@ impl DeployCommand {
             Some(app_id) => {
                 let labels = application.sqlite_databases();
                 if !labels.is_empty()
-                    && create_and_link_databases_for_existing_app(&client, &name, app_id, labels, &interact)
-                        .await?
-                        .is_none()
+                    && create_and_link_databases_for_existing_app(
+                        &client,
+                        &name,
+                        app_id,
+                        labels,
+                        interact.as_ref(),
+                    )
+                    .await?
+                    .is_none()
                 {
                     // User canceled terminal interaction
                     return Ok(());
@@ -237,7 +257,9 @@ impl DeployCommand {
             None => {
                 let labels = application.sqlite_databases();
                 let databases_to_link =
-                    match create_databases_for_new_app(&client, &name, labels, &interact).await? {
+                    match create_databases_for_new_app(&client, &name, labels, interact.as_ref())
+                        .await?
+                    {
                         Some(dbs) => dbs,
                         None => return Ok(()), // User canceled terminal interaction
                     };
@@ -301,6 +323,15 @@ impl DeployCommand {
         }
 
         Ok(())
+    }
+
+    fn interaction_strategy(&self) -> anyhow::Result<Box<dyn database::InteractionStrategy>> {
+        if self.links.is_empty() {
+            return Ok(Box::new(database::Interactive));
+        }
+
+        let script = parse_linkage_specs(&self.links)?;
+        Ok(Box::new(script))
     }
 
     async fn load_cloud_app(&self, working_dir: &Path) -> Result<DeployableApp, anyhow::Error> {
@@ -969,6 +1000,56 @@ pub fn config_file_path(deployment_env_id: Option<&str>) -> Result<PathBuf> {
     Ok(path)
 }
 
+fn parse_linkage_specs(links: &[impl AsRef<str>]) -> anyhow::Result<database::Scripted> {
+    // TODO: would this be nicer as a fold?
+    let mut strategy = database::Scripted::default();
+
+    for link in links.iter().map(|s| parse_one_linkage_spec(s.as_ref())) {
+        match link? {
+            LinkageSpec::SqliteDefault { default } => strategy.set_default_db(default)?,
+            LinkageSpec::SqliteLabel { label, name } => strategy.set_label_action(&label, name)?,
+        };
+    }
+
+    Ok(strategy)
+}
+
+fn parse_one_linkage_spec(link: &str) -> anyhow::Result<LinkageSpec> {
+    let Some(spec) = link.strip_prefix("sqlite:") else {
+        bail!("Links must be of the form 'sqlite:label=database' ('*' allowed, see help)");
+    };
+    let Some((label, db)) = spec.split_once('=') else {
+        bail!("Links must be of the form 'sqlite:label=database' ('*' allowed, see help)");
+    };
+    let label = label.trim();
+    let db = db.trim();
+
+    let dbref = if db == "*" {
+        database::DatabaseRef::GenerateNew
+    } else {
+        database::DatabaseRef::Named(db.to_owned())
+    };
+
+    if label == "*" {
+        Ok(LinkageSpec::SqliteDefault { default: dbref })
+    } else {
+        Ok(LinkageSpec::SqliteLabel {
+            label: label.to_owned(),
+            name: dbref,
+        })
+    }
+}
+
+enum LinkageSpec {
+    SqliteLabel {
+        label: String,
+        name: database::DatabaseRef,
+    },
+    SqliteDefault {
+        default: database::DatabaseRef,
+    },
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1023,6 +1104,7 @@ mod test {
             deployment_env_id: None,
             key_values: vec![],
             variables: vec![],
+            links: vec![],
         }
     }
 
@@ -1079,5 +1161,67 @@ mod test {
         let app = cmd.load_cloud_app(temp_dir.path()).await.unwrap();
         let version = app.0.metadata.get("cloud_plugin_version").unwrap();
         assert_eq!(crate::VERSION, version);
+    }
+
+    fn string_set(strs: &[&str]) -> HashSet<String> {
+        strs.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn new_app_databases_are_created_and_linked() {
+        let labels = string_set(&["default", "finance"]);
+        let links = ["sqlite:default=*", "sqlite:finance=excel"];
+        let linkages = parse_linkage_specs(&links).unwrap();
+
+        let mut client = cloud::MockCloudClientInterface::new();
+        let created_name_cell: std::sync::Arc<std::sync::RwLock<String>> =
+            std::sync::Arc::new(std::sync::RwLock::new("".to_owned()));
+        let created_name_c2 = created_name_cell.clone();
+
+        client.expect_get_databases().returning(|_| Ok(vec![]));
+        client
+            .expect_create_database()
+            .withf(|db, rlabel| db.contains('-') && rlabel.is_none())
+            .returning(move |db, _| {
+                *created_name_c2.write().unwrap() = db.to_string();
+                Ok(())
+            });
+        client.expect_get_databases().returning(|_| Ok(vec![]));
+        client
+            .expect_create_database()
+            .withf(|db, rlabel| db == "excel" && rlabel.is_none())
+            .returning(|_, _| Ok(()));
+
+        let databases_to_link = database::create_databases_for_new_app(
+            &client,
+            "test:script-new-app",
+            labels,
+            &linkages,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(2, databases_to_link.len());
+
+        client
+            .expect_create_database_link()
+            .withf(move |db, rlabel| {
+                let expected_name = created_name_cell.read().unwrap();
+                db == *expected_name && rlabel.label == "default"
+            })
+            .returning(|_, _| Ok(()));
+        client
+            .expect_create_database_link()
+            .withf(|db, rlabel| db == "excel" && rlabel.label == "finance")
+            .returning(|_, _| Ok(()));
+
+        database::link_databases(
+            &client,
+            "test:script-new-app",
+            uuid::Uuid::new_v4(),
+            databases_to_link,
+        )
+        .await
+        .unwrap();
     }
 }

@@ -1,20 +1,13 @@
-use anyhow::{bail, Context, Result};
-use cloud::{
-    CloudClientInterface,
-};
-use cloud_openapi::models::{
-    Database,
-    ResourceLabel,
-};
+use anyhow::{anyhow, bail, Context, Result};
+use cloud::CloudClientInterface;
+use cloud_openapi::models::{Database, ResourceLabel};
 
-use std::{
-    collections::HashSet,
-};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use uuid::Uuid;
 
-use crate::{
-    random_name::RandomNameGenerator,
-};
+use crate::random_name::RandomNameGenerator;
 
 use crate::commands::sqlite::database_has_link;
 
@@ -35,7 +28,7 @@ async fn get_database_selection_for_existing_app(
     name: &str,
     client: &impl CloudClientInterface,
     resource_label: &ResourceLabel,
-    interact: &impl InteractionStrategy,
+    interact: &dyn InteractionStrategy,
 ) -> Result<ExistingAppDatabaseSelection> {
     let databases = client.get_databases(None).await?;
     if databases
@@ -52,7 +45,7 @@ async fn get_database_selection_for_new_app(
     name: &str,
     client: &impl CloudClientInterface,
     label: &str,
-    interact: &impl InteractionStrategy,
+    interact: &dyn InteractionStrategy,
 ) -> Result<DatabaseSelection> {
     let databases = client.get_databases(None).await?;
     interact.prompt_database_selection(name, label, databases)
@@ -111,6 +104,8 @@ impl InteractionStrategy for Interactive {
     }
 }
 
+const NAME_GENERATION_MAX_ATTEMPTS: usize = 100;
+
 impl Interactive {
     fn prompt_for_existing_database(
         &self,
@@ -140,7 +135,7 @@ impl Interactive {
     ) -> Result<DatabaseSelection> {
         let generator = RandomNameGenerator::new();
         let default_name = generator
-            .generate_unique(existing_names, 20)
+            .generate_unique(existing_names, NAME_GENERATION_MAX_ATTEMPTS)
             .context("could not generate unique database name")?;
 
         let prompt = format!(
@@ -156,6 +151,84 @@ impl Interactive {
     }
 }
 
+#[derive(Default)]
+pub(super) struct Scripted {
+    default_action: DefaultLabelAction,
+    labels_to_dbs: HashMap<String, DatabaseRef>,
+}
+
+impl Scripted {
+    pub(super) fn set_default_db(&mut self, db: DatabaseRef) -> anyhow::Result<()> {
+        match self.default_action {
+            DefaultLabelAction::Reject => self.default_action = DefaultLabelAction::Accept(db),
+            DefaultLabelAction::Accept(_) => bail!("Cannot specify more than one default"),
+        };
+        Ok(())
+    }
+
+    pub(super) fn set_label_action(&mut self, label: &str, db: DatabaseRef) -> anyhow::Result<()> {
+        match self.labels_to_dbs.entry(label.to_owned()) {
+            Entry::Occupied(_) => bail!("Label {label} is linked more than once"),
+            Entry::Vacant(e) => e.insert(db),
+        };
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub(super) enum DefaultLabelAction {
+    #[default]
+    Reject,
+    Accept(DatabaseRef),
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum DatabaseRef {
+    Named(String),
+    GenerateNew,
+}
+
+impl InteractionStrategy for Scripted {
+    fn prompt_database_selection(
+        &self,
+        _name: &str,
+        label: &str,
+        databases: Vec<Database>,
+    ) -> Result<DatabaseSelection> {
+        let existing_names: HashSet<&str> = databases.iter().map(|db| db.name.as_str()).collect();
+        let requested_db = self.db_ref_for(label)?;
+        match requested_db {
+            DatabaseRef::GenerateNew => {
+                let generator = RandomNameGenerator::new();
+                let name = generator
+                    .generate_unique(existing_names, NAME_GENERATION_MAX_ATTEMPTS)
+                    .context("could not generate unique database name")?;
+                Ok(DatabaseSelection::New(name))
+            }
+            DatabaseRef::Named(requested_db) => {
+                let name = requested_db.to_owned();
+                if existing_names.contains(name.as_str()) {
+                    Ok(DatabaseSelection::Existing(name))
+                } else {
+                    Ok(DatabaseSelection::New(name))
+                }
+            }
+        }
+    }
+}
+
+impl Scripted {
+    fn db_ref_for(&self, label: &str) -> anyhow::Result<&DatabaseRef> {
+        match self.labels_to_dbs.get(label) {
+            Some(db_ref) => Ok(db_ref),
+            None => match &self.default_action {
+                DefaultLabelAction::Reject => Err(anyhow!("No link specified for label '{label}'")),
+                DefaultLabelAction::Accept(db_ref) => Ok(db_ref),
+            },
+        }
+    }
+}
+
 // Loops through an app's manifest and creates databases.
 // Returns a list of database and label pairs that should be
 // linked to the app once it is created.
@@ -164,7 +237,7 @@ pub(super) async fn create_databases_for_new_app(
     client: &impl CloudClientInterface,
     name: &str,
     labels: HashSet<String>,
-    interact: &impl InteractionStrategy,
+    interact: &dyn InteractionStrategy,
 ) -> anyhow::Result<Option<Vec<(String, String)>>> {
     let mut databases_to_link = Vec::new();
     for label in labels {
@@ -189,7 +262,7 @@ pub(super) async fn create_and_link_databases_for_existing_app(
     app_name: &str,
     app_id: Uuid,
     labels: HashSet<String>,
-    interact: &impl InteractionStrategy,
+    interact: &dyn InteractionStrategy,
 ) -> anyhow::Result<Option<()>> {
     for label in labels {
         let resource_label = ResourceLabel {
@@ -198,7 +271,8 @@ pub(super) async fn create_and_link_databases_for_existing_app(
             app_name: Some(app_name.to_string()),
         };
         if let ExistingAppDatabaseSelection::NotYetLinked(selection) =
-            get_database_selection_for_existing_app(app_name, client, &resource_label, interact).await?
+            get_database_selection_for_existing_app(app_name, client, &resource_label, interact)
+                .await?
         {
             match selection {
                 // User canceled terminal interaction
@@ -222,7 +296,7 @@ pub(super) async fn create_and_link_databases_for_existing_app(
 
 pub(super) async fn link_databases(
     client: &impl CloudClientInterface,
-    app_name: String,
+    app_name: &str,
     app_id: Uuid,
     database_labels: Vec<(String, String)>,
 ) -> anyhow::Result<()> {
@@ -230,7 +304,7 @@ pub(super) async fn link_databases(
         let resource_label = ResourceLabel {
             label,
             app_id,
-            app_name: Some(app_name.clone()),
+            app_name: Some(app_name.to_owned()),
         };
         client
             .create_database_link(&database, resource_label)
