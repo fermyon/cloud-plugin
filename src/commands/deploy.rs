@@ -25,7 +25,10 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::{
-    commands::variables::{get_variables, set_variables},
+    commands::{
+        variables::{get_variables, set_variables},
+        DEFAULT_CLOUD_URL,
+    },
     random_name::RandomNameGenerator,
     spin,
 };
@@ -245,7 +248,7 @@ impl DeployCommand {
                     .context("Unable to create app")?;
 
                 // Now that the app has been created, we can link databases to it.
-                link_databases(&client, name, app_id, databases_to_link).await?;
+                link_databases(&client, &name, app_id, databases_to_link).await?;
 
                 client
                     .add_revision(storage_id.clone(), version.clone())
@@ -292,7 +295,7 @@ impl DeployCommand {
             )
             .await;
             let base = http_base.unwrap_or_else(|| "/".to_owned());
-            print_available_routes(&app_base_url, &base, &http_routes);
+            print_available_routes(&name, &app_base_url, &base, &http_routes);
         } else {
             println!("Application is running at {}", channel.domain);
         }
@@ -760,7 +763,7 @@ async fn create_and_link_databases_for_existing_app(
 
 async fn link_databases(
     client: &CloudClient,
-    app_name: String,
+    app_name: &str,
     app_id: Uuid,
     database_labels: Vec<(String, String)>,
 ) -> anyhow::Result<()> {
@@ -768,7 +771,7 @@ async fn link_databases(
         let resource_label = ResourceLabel {
             label,
             app_id,
-            app_name: Some(app_name.clone()),
+            app_name: Some(app_name.to_owned()),
         };
         client
             .create_database_link(&database, resource_label)
@@ -1000,7 +1003,7 @@ async fn is_ready(app_info_url: &str, expected_version: &str) -> Result<bool> {
     Ok(true)
 }
 
-fn print_available_routes(app_base_url: &Url, base: &str, routes: &[HttpRoute]) {
+fn print_available_routes(app_name: &str, app_base_url: &Url, base: &str, routes: &[HttpRoute]) {
     if routes.is_empty() {
         return;
     }
@@ -1024,6 +1027,9 @@ fn print_available_routes(app_base_url: &Url, base: &str, routes: &[HttpRoute]) 
             println!("    {}", description);
         }
     }
+
+    let admin_url = format!("{}app/{app_name}", DEFAULT_CLOUD_URL); // URL already has scheme and /
+    println!("Manage application: {admin_url}");
 }
 
 // Check if the token has expired.
