@@ -1004,10 +1004,6 @@ async fn is_ready(app_info_url: &str, expected_version: &str) -> Result<bool> {
 }
 
 fn print_available_routes(app_name: &str, app_base_url: &Url, base: &str, routes: &[HttpRoute]) {
-    if routes.is_empty() {
-        return;
-    }
-
     // Strip any trailing slash from base URL
     let app_base_url = app_base_url.to_string();
     let route_prefix = app_base_url.strip_suffix('/').unwrap_or(&app_base_url);
@@ -1019,16 +1015,23 @@ fn print_available_routes(app_name: &str, app_base_url: &Url, base: &str, routes
         base.to_owned()
     };
 
-    println!("Available Routes:");
-    for component in routes {
-        let route = RoutePattern::from(&base, &component.route_pattern);
-        println!("  {}: {}{}", component.id, route_prefix, route);
-        if let Some(description) = &component.description {
-            println!("    {}", description);
+    let app_root_url = format!("{route_prefix}{base}");
+    let admin_url = format!("{}app/{app_name}", DEFAULT_CLOUD_URL); // URL already has scheme and /
+
+    println!();
+    println!("View application:   {app_root_url}");
+
+    if routes.iter().any(|r| r.route_pattern != "/...") {
+        println!("  Routes:");
+        for component in routes {
+            let route = RoutePattern::from(&base, &component.route_pattern);
+            println!("  - {}: {}{}", component.id, route_prefix, route);
+            if let Some(description) = &component.description {
+                println!("    {}", description);
+            }
         }
     }
 
-    let admin_url = format!("{}app/{app_name}", DEFAULT_CLOUD_URL); // URL already has scheme and /
     println!("Manage application: {admin_url}");
 }
 
