@@ -22,10 +22,10 @@ use crate::opts::{
     TOKEN,
 };
 
+use super::DEFAULT_CLOUD_URL;
+
 // this is the client ID registered in the Cloud's backend
 const SPIN_CLIENT_ID: &str = "583e63e9-461f-4fbe-a246-23e0fb1cad10";
-
-const DEFAULT_CLOUD_URL: &str = "https://cloud.fermyon.com/";
 
 /// Log into Fermyon Cloud.
 #[derive(Parser, Debug)]

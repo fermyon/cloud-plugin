@@ -14,6 +14,8 @@ use cloud::{
 };
 use uuid::Uuid;
 
+const DEFAULT_CLOUD_URL: &str = "https://cloud.fermyon.com/";
+
 pub(crate) async fn create_cloud_client(deployment_env_id: Option<&str>) -> Result<CloudClient> {
     let login_connection = login_connection(deployment_env_id).await?;
     let connection_config = ConnectionConfig {
