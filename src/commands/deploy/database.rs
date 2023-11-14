@@ -153,19 +153,10 @@ impl Interactive {
 
 #[derive(Default)]
 pub(super) struct Scripted {
-    default_action: DefaultLabelAction,
     labels_to_dbs: HashMap<String, DatabaseRef>,
 }
 
 impl Scripted {
-    pub(super) fn set_default_db(&mut self, db: DatabaseRef) -> anyhow::Result<()> {
-        match self.default_action {
-            DefaultLabelAction::Reject => self.default_action = DefaultLabelAction::Accept(db),
-            DefaultLabelAction::Accept(_) => bail!("Cannot specify more than one default"),
-        };
-        Ok(())
-    }
-
     pub(super) fn set_label_action(&mut self, label: &str, db: DatabaseRef) -> anyhow::Result<()> {
         match self.labels_to_dbs.entry(label.to_owned()) {
             Entry::Occupied(_) => bail!("Label {label} is linked more than once"),
@@ -175,17 +166,17 @@ impl Scripted {
     }
 }
 
+// Using an enum to allow for future "any other db label" linking
 #[derive(Clone, Debug, Default)]
 pub(super) enum DefaultLabelAction {
     #[default]
     Reject,
-    Accept(DatabaseRef),
 }
 
+// Using an enum to allow for future "create new and link that" linking
 #[derive(Clone, Debug)]
 pub(super) enum DatabaseRef {
     Named(String),
-    GenerateNew,
 }
 
 impl InteractionStrategy for Scripted {
@@ -198,13 +189,6 @@ impl InteractionStrategy for Scripted {
         let existing_names: HashSet<&str> = databases.iter().map(|db| db.name.as_str()).collect();
         let requested_db = self.db_ref_for(label)?;
         match requested_db {
-            DatabaseRef::GenerateNew => {
-                let generator = RandomNameGenerator::new();
-                let name = generator
-                    .generate_unique(existing_names, NAME_GENERATION_MAX_ATTEMPTS)
-                    .context("could not generate unique database name")?;
-                Ok(DatabaseSelection::New(name))
-            }
             DatabaseRef::Named(requested_db) => {
                 let name = requested_db.to_owned();
                 if existing_names.contains(name.as_str()) {
@@ -221,10 +205,7 @@ impl Scripted {
     fn db_ref_for(&self, label: &str) -> anyhow::Result<&DatabaseRef> {
         match self.labels_to_dbs.get(label) {
             Some(db_ref) => Ok(db_ref),
-            None => match &self.default_action {
-                DefaultLabelAction::Reject => Err(anyhow!("No link specified for label '{label}'")),
-                DefaultLabelAction::Accept(db_ref) => Ok(db_ref),
-            },
+            None => Err(anyhow!("No link specified for label '{label}'")),
         }
     }
 }

@@ -119,11 +119,7 @@ pub struct DeployCommand {
     /// if any links are specified, all links must be specified.
     ///
     /// Links must be of the form 'sqlite:label=database'. Databases that
-    /// do not exist will be created. To express "create a new database with
-    /// a random name", use the special database '*'. To link all labels
-    /// not specified in other --link flags, use the special label '*'.
-    /// Thus, 'sqlite:*=*' would create a new randomly named database for
-    /// every label that is not already linked.
+    /// do not exist will be created.
     #[clap(long = "link")]
     pub links: Vec<String>,
 }
@@ -1006,7 +1002,6 @@ fn parse_linkage_specs(links: &[impl AsRef<str>]) -> anyhow::Result<database::Sc
 
     for link in links.iter().map(|s| parse_one_linkage_spec(s.as_ref())) {
         match link? {
-            LinkageSpec::SqliteDefault { default } => strategy.set_default_db(default)?,
             LinkageSpec::SqliteLabel { label, name } => strategy.set_label_action(&label, name)?,
         };
     }
@@ -1016,37 +1011,26 @@ fn parse_linkage_specs(links: &[impl AsRef<str>]) -> anyhow::Result<database::Sc
 
 fn parse_one_linkage_spec(link: &str) -> anyhow::Result<LinkageSpec> {
     let Some(spec) = link.strip_prefix("sqlite:") else {
-        bail!("Links must be of the form 'sqlite:label=database' ('*' allowed, see help)");
+        bail!("Links must be of the form 'sqlite:label=database'");
     };
     let Some((label, db)) = spec.split_once('=') else {
-        bail!("Links must be of the form 'sqlite:label=database' ('*' allowed, see help)");
+        bail!("Links must be of the form 'sqlite:label=database'");
     };
     let label = label.trim();
     let db = db.trim();
 
-    let dbref = if db == "*" {
-        database::DatabaseRef::GenerateNew
-    } else {
-        database::DatabaseRef::Named(db.to_owned())
-    };
+    let dbref = database::DatabaseRef::Named(db.to_owned());
 
-    if label == "*" {
-        Ok(LinkageSpec::SqliteDefault { default: dbref })
-    } else {
-        Ok(LinkageSpec::SqliteLabel {
-            label: label.to_owned(),
-            name: dbref,
-        })
-    }
+    Ok(LinkageSpec::SqliteLabel {
+        label: label.to_owned(),
+        name: dbref,
+    })
 }
 
 enum LinkageSpec {
     SqliteLabel {
         label: String,
         name: database::DatabaseRef,
-    },
-    SqliteDefault {
-        default: database::DatabaseRef,
     },
 }
 
@@ -1170,22 +1154,16 @@ mod test {
     #[tokio::test]
     async fn new_app_databases_are_created_and_linked() {
         let labels = string_set(&["default", "finance"]);
-        let links = ["sqlite:default=*", "sqlite:finance=excel"];
+        let links = ["sqlite:default=def-o-rama", "sqlite:finance=excel"];
         let linkages = parse_linkage_specs(&links).unwrap();
 
         let mut client = cloud::MockCloudClientInterface::new();
-        let created_name_cell: std::sync::Arc<std::sync::RwLock<String>> =
-            std::sync::Arc::new(std::sync::RwLock::new("".to_owned()));
-        let created_name_c2 = created_name_cell.clone();
 
         client.expect_get_databases().returning(|_| Ok(vec![]));
         client
             .expect_create_database()
-            .withf(|db, rlabel| db.contains('-') && rlabel.is_none())
-            .returning(move |db, _| {
-                *created_name_c2.write().unwrap() = db.to_string();
-                Ok(())
-            });
+            .withf(|db, rlabel| db == "def-o-rama" && rlabel.is_none())
+            .returning(move |_, _| Ok(()));
         client.expect_get_databases().returning(|_| Ok(vec![]));
         client
             .expect_create_database()
@@ -1205,10 +1183,7 @@ mod test {
 
         client
             .expect_create_database_link()
-            .withf(move |db, rlabel| {
-                let expected_name = created_name_cell.read().unwrap();
-                db == *expected_name && rlabel.label == "default"
-            })
+            .withf(move |db, rlabel| db == "def-o-rama" && rlabel.label == "default")
             .returning(|_, _| Ok(()));
         client
             .expect_create_database_link()
