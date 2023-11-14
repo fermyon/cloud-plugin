@@ -103,7 +103,8 @@ pub struct LoginCommand {
     #[clap(
         name = "environment-name",
         long = "environment-name",
-        env = DEPLOYMENT_ENV_NAME_ENV
+        env = DEPLOYMENT_ENV_NAME_ENV,
+        hidden = true
     )]
     pub deployment_env_id: Option<String>,
 
