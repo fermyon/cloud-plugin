@@ -54,6 +54,7 @@ enum CloudCli {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    env_logger::init();
     let mut app = CloudCli::clap();
     // Plugin should always be invoked from Spin so set binary name accordingly
     app.set_bin_name("spin cloud");
