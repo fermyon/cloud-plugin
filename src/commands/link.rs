@@ -1,11 +1,10 @@
 use anyhow::{Context, Result};
-use clap::{Args, Parser};
+use clap::Parser;
 use cloud::CloudClientInterface;
 use cloud_openapi::models::{Database, ResourceLabel};
 use uuid::Uuid;
 
-use crate::commands::{client_and_app_id, sqlite::find_database_link};
-use crate::opts::*;
+use crate::commands::{client_and_app_id, sqlite::find_database_link, CommonArgs};
 
 /// Manage how apps and resources are linked together
 #[derive(Parser, Debug)]
@@ -26,19 +25,6 @@ pub struct SqliteLinkCommand {
     /// The database that the app will refer to by the label
     #[clap(short = 'd', long = "database")]
     database: String,
-}
-
-#[derive(Debug, Default, Args)]
-struct CommonArgs {
-    /// Deploy to the Fermyon instance saved under the specified name.
-    /// If omitted, Spin deploys to the default unnamed instance.
-    #[clap(
-        name = "environment-name",
-        long = "environment-name",
-        env = DEPLOYMENT_ENV_NAME_ENV,
-        hidden = true
-    )]
-    pub deployment_env_id: Option<String>,
 }
 
 impl LinkCommand {
