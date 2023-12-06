@@ -6,8 +6,9 @@ pub mod logs;
 pub mod sqlite;
 pub mod variables;
 
-use crate::commands::deploy::login_connection;
+use crate::{commands::deploy::login_connection, opts::DEPLOYMENT_ENV_NAME_ENV};
 use anyhow::{Context, Result};
+use clap::Args;
 use cloud::{
     client::{Client as CloudClient, ConnectionConfig},
     CloudClientExt,
@@ -37,4 +38,17 @@ async fn client_and_app_id(
         .with_context(|| format!("Error finding app_id for app '{}'", app))?
         .with_context(|| format!("Could not find app '{}'", app))?;
     Ok((client, app_id))
+}
+
+#[derive(Debug, Default, Args)]
+struct CommonArgs {
+    /// Deploy to the Fermyon instance saved under the specified name.
+    /// If omitted, Spin deploys to the default unnamed instance.
+    #[clap(
+        name = "environment-name",
+        long = "environment-name",
+        env = DEPLOYMENT_ENV_NAME_ENV,
+        hidden = true
+    )]
+    pub deployment_env_id: Option<String>,
 }

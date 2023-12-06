@@ -1,13 +1,12 @@
 use anyhow::{Context, Result};
-use clap::{Args, Parser};
+use clap::Parser;
 use cloud::{client::Client as CloudClient, CloudClientInterface};
 use serde::Deserialize;
 use serde_json::from_str;
 use spin_common::arg_parser::parse_kv;
 use uuid::Uuid;
 
-use crate::commands::client_and_app_id;
-use crate::opts::*;
+use crate::commands::{client_and_app_id, CommonArgs};
 
 #[derive(Deserialize)]
 pub(crate) struct Variable {
@@ -33,6 +32,9 @@ pub struct SetCommand {
     pub variables_to_set: Vec<(String, String)>,
     #[clap(flatten)]
     common: CommonArgs,
+    /// Name of Spin app
+    #[clap(name = "app", long = "app")]
+    pub app: String,
 }
 
 #[derive(Parser, Debug)]
@@ -41,26 +43,15 @@ pub struct DeleteCommand {
     pub variables_to_delete: Vec<String>,
     #[clap(flatten)]
     common: CommonArgs,
+    /// Name of Spin app
+    #[clap(name = "app", long = "app")]
+    pub app: String,
 }
 
 #[derive(Parser, Debug)]
 pub struct ListCommand {
     #[clap(flatten)]
     common: CommonArgs,
-}
-
-#[derive(Debug, Default, Args)]
-struct CommonArgs {
-    /// Deploy to the Fermyon instance saved under the specified name.
-    /// If omitted, Spin deploys to the default unnamed instance.
-    #[clap(
-        name = "environment-name",
-        long = "environment-name",
-        env = DEPLOYMENT_ENV_NAME_ENV,
-        hidden = true
-    )]
-    pub deployment_env_id: Option<String>,
-
     /// Name of Spin app
     #[clap(name = "app", long = "app")]
     pub app: String,
@@ -71,20 +62,17 @@ impl VariablesCommand {
         match self {
             Self::Set(cmd) => {
                 let (client, app_id) =
-                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
-                        .await?;
+                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.app).await?;
                 set_variables(&client, app_id, &cmd.variables_to_set).await?;
             }
             Self::Delete(cmd) => {
                 let (client, app_id) =
-                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
-                        .await?;
+                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.app).await?;
                 delete_variables(&client, app_id, &cmd.variables_to_delete).await?;
             }
             Self::List(cmd) => {
                 let (client, app_id) =
-                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.common.app)
-                        .await?;
+                    client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.app).await?;
                 let var_names = get_variables(&client, app_id).await?;
                 for v in var_names {
                     println!("{}", v.key);

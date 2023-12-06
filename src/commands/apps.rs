@@ -1,7 +1,6 @@
-use crate::commands::{client_and_app_id, create_cloud_client};
-use crate::opts::*;
+use crate::commands::{client_and_app_id, create_cloud_client, CommonArgs};
 use anyhow::{Context, Result};
-use clap::{Args, Parser};
+use clap::Parser;
 use cloud::{CloudClientInterface, DEFAULT_APPLIST_PAGE_SIZE};
 use cloud_openapi::models::{AppItem, AppItemPage, ValidationStatus};
 
@@ -36,19 +35,6 @@ pub struct InfoCommand {
     pub app: String,
     #[clap(flatten)]
     common: CommonArgs,
-}
-
-#[derive(Debug, Default, Args)]
-struct CommonArgs {
-    /// Deploy to the Fermyon instance saved under the specified name.
-    /// If omitted, Spin deploys to the default unnamed instance.
-    #[clap(
-        name = "environment-name",
-        long = "environment-name",
-        env = DEPLOYMENT_ENV_NAME_ENV,
-        hidden = true
-    )]
-    pub deployment_env_id: Option<String>,
 }
 
 impl AppsCommand {
