@@ -8,6 +8,7 @@ use clap::{FromArgMatches, Parser};
 use commands::{
     apps::AppsCommand,
     deploy::DeployCommand,
+    key_value::KeyValueCommand,
     link::{LinkCommand, UnlinkCommand},
     login::{LoginCommand, LogoutCommand},
     logs::LogsCommand,
@@ -52,6 +53,9 @@ enum CloudCli {
     /// Unlink apps from resources
     #[clap(subcommand)]
     Unlink(UnlinkCommand),
+    /// Manage Fermyon Cloud key value stores
+    #[clap(subcommand, alias = "kv")]
+    KeyValue(KeyValueCommand),
 }
 
 #[tokio::main]
@@ -73,5 +77,6 @@ async fn main() -> Result<(), Error> {
         CloudCli::Sqlite(cmd) => cmd.run().await,
         CloudCli::Link(cmd) => cmd.run().await,
         CloudCli::Unlink(cmd) => cmd.run().await,
+        CloudCli::KeyValue(cmd) => cmd.run().await,
     }
 }

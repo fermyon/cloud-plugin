@@ -1,8 +1,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use cloud_openapi::models::{
-    AppItem, AppItemPage, Database, DeviceCodeItem, GetAppLogsVm, GetAppRawLogsVm, ResourceLabel,
-    RevisionItemPage, TokenInfo,
+    AppItem, AppItemPage, Database, DeviceCodeItem, GetAppLogsVm, GetAppRawLogsVm,
+    KeyValueStoreItem, ResourceLabel, RevisionItemPage, TokenInfo,
 };
 
 use std::string::String;
@@ -53,6 +53,31 @@ pub trait CloudClientInterface: Send + Sync {
         store_name: String,
         key: String,
         value: String,
+    ) -> anyhow::Result<()>;
+
+    async fn create_key_value_store(
+        &self,
+        store_name: &str,
+        resource_label: Option<ResourceLabel>,
+    ) -> anyhow::Result<()>;
+
+    async fn delete_key_value_store(&self, store_name: &str) -> anyhow::Result<()>;
+
+    async fn get_key_value_stores(
+        &self,
+        app_id: Option<Uuid>,
+    ) -> anyhow::Result<Vec<KeyValueStoreItem>>;
+
+    async fn create_key_value_store_link(
+        &self,
+        key_value_store: &str,
+        resource_label: ResourceLabel,
+    ) -> anyhow::Result<()>;
+
+    async fn remove_key_value_store_link(
+        &self,
+        key_value_store: &str,
+        resource_label: ResourceLabel,
     ) -> anyhow::Result<()>;
 
     async fn add_variable_pair(
