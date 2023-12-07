@@ -9,7 +9,7 @@ use commands::{
     apps::AppsCommand,
     deploy::DeployCommand,
     link::{LinkCommand, UnlinkCommand},
-    login::LoginCommand,
+    login::{LoginCommand, LogoutCommand},
     logs::LogsCommand,
     sqlite::SqliteCommand,
     variables::VariablesCommand,
@@ -34,8 +34,10 @@ enum CloudCli {
     Apps(AppsCommand),
     /// Package and upload an application to the Fermyon Cloud.
     Deploy(DeployCommand),
-    /// Login to Fermyon Cloud
+    /// Log into Fermyon Cloud
     Login(LoginCommand),
+    /// Log out of Fermyon Cloud
+    Logout(LogoutCommand),
     /// Fetch logs for an app from Fermyon Cloud
     Logs(LogsCommand),
     /// Manage Spin application variables
@@ -65,6 +67,7 @@ async fn main() -> Result<(), Error> {
         CloudCli::Apps(cmd) => cmd.run().await,
         CloudCli::Deploy(cmd) => cmd.run().await,
         CloudCli::Login(cmd) => cmd.run().await,
+        CloudCli::Logout(cmd) => cmd.run().await,
         CloudCli::Logs(cmd) => cmd.run().await,
         CloudCli::Variables(cmd) => cmd.run().await,
         CloudCli::Sqlite(cmd) => cmd.run().await,

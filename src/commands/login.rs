@@ -121,6 +121,19 @@ pub struct LoginCommand {
     pub list: bool,
 }
 
+/// Log out of Fermyon Cloud.
+#[derive(Parser, Debug)]
+pub struct LogoutCommand {
+    /// The environment name to log out of.
+    #[clap(
+        name = "environment-name",
+        long = "environment-name",
+        env = DEPLOYMENT_ENV_NAME_ENV,
+        hidden = true
+    )]
+    pub deployment_env_id: Option<String>,
+}
+
 fn parse_url(url: &str) -> Result<url::Url> {
     let mut url = Url::parse(url).map_err(|error| {
         anyhow::format_err!(
@@ -310,6 +323,30 @@ impl LoginCommand {
         let path = self.config_file_path()?;
         std::fs::write(path, serde_json::to_string_pretty(login_connection)?)?;
         Ok(())
+    }
+}
+
+impl LogoutCommand {
+    pub async fn run(&self) -> Result<()> {
+        let path = self.config_file_path()?;
+        if path.is_file() {
+            std::fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    fn config_file_path(&self) -> Result<PathBuf> {
+        let root = config_root_dir()?;
+
+        let file_stem = match &self.deployment_env_id {
+            None => "config",
+            Some(id) => id,
+        };
+        let file = format!("{}.json", file_stem);
+
+        let path = root.join(file);
+
+        Ok(path)
     }
 }
 
