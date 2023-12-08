@@ -2,16 +2,11 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use cloud_openapi::{
     apis::{
-        self,
         apps_api::{
             api_apps_get, api_apps_id_delete, api_apps_id_get, api_apps_id_logs_get,
             api_apps_id_logs_raw_get, api_apps_post,
         },
         auth_tokens_api::api_auth_tokens_refresh_post,
-        channels_api::{
-            api_channels_get, api_channels_id_delete, api_channels_id_get, api_channels_post,
-            ApiChannelsIdPatchError,
-        },
         configuration::{ApiKey, Configuration},
         device_codes_api::api_device_codes_post,
         key_value_pairs_api::api_key_value_pairs_post,
@@ -24,16 +19,15 @@ use cloud_openapi::{
         variable_pairs_api::{
             api_variable_pairs_delete, api_variable_pairs_get, api_variable_pairs_post,
         },
-        Error, ResponseContent,
+        Error,
     },
     models::{
-        AppItem, AppItemPage, ChannelItem, ChannelItemPage, ChannelRevisionSelectionStrategy,
-        CreateAppCommand, CreateChannelCommand, CreateDeviceCodeCommand, CreateKeyValuePairCommand,
-        CreateSqlDatabaseCommand, CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand,
-        DeleteVariablePairCommand, DeviceCodeItem, EnvironmentVariableItem,
-        ExecuteSqlStatementCommand, GetAppLogsVm, GetAppRawLogsVm, GetSqlDatabasesQuery,
-        GetVariablesQuery, RefreshTokenCommand, RegisterRevisionCommand, ResourceLabel,
-        RevisionItemPage, TokenInfo,
+        AppItem, AppItemPage, ChannelRevisionSelectionStrategy, CreateAppCommand,
+        CreateDeviceCodeCommand, CreateKeyValuePairCommand, CreateSqlDatabaseCommand,
+        CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand, DeleteVariablePairCommand,
+        DeviceCodeItem, EnvironmentVariableItem, ExecuteSqlStatementCommand, GetAppLogsVm,
+        GetAppRawLogsVm, GetSqlDatabasesQuery, GetVariablesQuery, RefreshTokenCommand,
+        RegisterRevisionCommand, ResourceLabel, RevisionItemPage, TokenInfo,
     },
 };
 use reqwest::header;
@@ -196,130 +190,6 @@ impl CloudClientInterface for Client {
         since: Option<String>,
     ) -> Result<GetAppRawLogsVm> {
         api_apps_id_logs_raw_get(&self.configuration, &id, max_lines, since.as_deref(), None)
-            .await
-            .map_err(format_response_error)
-    }
-
-    async fn get_channel_by_id(&self, id: &str) -> Result<ChannelItem> {
-        api_channels_id_get(&self.configuration, id, None)
-            .await
-            .map_err(format_response_error)
-    }
-
-    async fn list_channels(&self) -> Result<ChannelItemPage> {
-        api_channels_get(
-            &self.configuration,
-            Some(""),
-            None,
-            None,
-            Some("Name"),
-            None,
-            None,
-        )
-        .await
-        .map_err(format_response_error)
-    }
-
-    async fn list_channels_next(&self, previous: &ChannelItemPage) -> Result<ChannelItemPage> {
-        api_channels_get(
-            &self.configuration,
-            Some(""),
-            Some(previous.page_index + 1),
-            Some(previous.page_size),
-            Some("Name"),
-            None,
-            None,
-        )
-        .await
-        .map_err(format_response_error)
-    }
-
-    async fn add_channel(
-        &self,
-        app_id: Uuid,
-        name: String,
-        revision_selection_strategy: ChannelRevisionSelectionStrategy,
-        range_rule: Option<String>,
-        active_revision_id: Option<Uuid>,
-    ) -> anyhow::Result<Uuid> {
-        let command = CreateChannelCommand {
-            app_id,
-            name,
-            revision_selection_strategy,
-            range_rule: Some(range_rule),
-            active_revision_id: Some(active_revision_id),
-        };
-        api_channels_post(&self.configuration, command, None)
-            .await
-            .map_err(format_response_error)
-    }
-
-    async fn patch_channel(
-        &self,
-        id: Uuid,
-        name: Option<String>,
-        revision_selection_strategy: Option<ChannelRevisionSelectionStrategy>,
-        range_rule: Option<String>,
-        active_revision_id: Option<Uuid>,
-        environment_variables: Option<Vec<EnvironmentVariableItem>>,
-    ) -> anyhow::Result<()> {
-        let patch_channel_command = PatchChannelCommand {
-            channel_id: Some(id),
-            name,
-            revision_selection_strategy,
-            range_rule,
-            active_revision_id,
-            environment_variables,
-        };
-
-        let local_var_configuration = &self.configuration;
-
-        let local_var_client = &local_var_configuration.client;
-
-        let local_var_uri_str = format!(
-            "{}/api/channels/{id}",
-            local_var_configuration.base_path,
-            id = apis::urlencode(id.to_string())
-        );
-        let mut local_var_req_builder =
-            local_var_client.request(reqwest::Method::PATCH, local_var_uri_str.as_str());
-
-        if let Some(ref local_var_user_agent) = local_var_configuration.user_agent {
-            local_var_req_builder = local_var_req_builder
-                .header(reqwest::header::USER_AGENT, local_var_user_agent.clone());
-        }
-        if let Some(ref local_var_apikey) = local_var_configuration.api_key {
-            let local_var_key = local_var_apikey.key.clone();
-            let local_var_value = match local_var_apikey.prefix {
-                Some(ref local_var_prefix) => format!("{} {}", local_var_prefix, local_var_key),
-                None => local_var_key,
-            };
-            local_var_req_builder = local_var_req_builder.header("Authorization", local_var_value);
-        };
-        local_var_req_builder = local_var_req_builder.json(&patch_channel_command);
-
-        let local_var_req = local_var_req_builder.build()?;
-        let local_var_resp = local_var_client.execute(local_var_req).await?;
-
-        let local_var_status = local_var_resp.status();
-        let local_var_content = local_var_resp.text().await?;
-
-        if !local_var_status.is_client_error() && !local_var_status.is_server_error() {
-            Ok(())
-        } else {
-            let local_var_entity: Option<ApiChannelsIdPatchError> =
-                serde_json::from_str(&local_var_content).ok();
-            let local_var_error = ResponseContent {
-                status: local_var_status,
-                content: local_var_content,
-                entity: local_var_entity,
-            };
-            Err(format_response_error(Error::ResponseError(local_var_error)))
-        }
-    }
-
-    async fn remove_channel(&self, id: String) -> Result<()> {
-        api_channels_id_delete(&self.configuration, &id, None)
             .await
             .map_err(format_response_error)
     }

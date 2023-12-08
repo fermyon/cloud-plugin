@@ -1,8 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use cloud_openapi::models::{
-    AppItem, AppItemPage, ChannelItem, ChannelItemPage, ChannelRevisionSelectionStrategy, Database,
-    DeviceCodeItem, EnvironmentVariableItem, GetAppLogsVm, GetAppRawLogsVm, ResourceLabel,
+    AppItem, AppItemPage, Database, DeviceCodeItem, GetAppLogsVm, GetAppRawLogsVm, ResourceLabel,
     RevisionItemPage, TokenInfo,
 };
 
@@ -34,33 +33,6 @@ pub trait CloudClientInterface: Send + Sync {
         max_lines: Option<i32>,
         since: Option<String>,
     ) -> Result<GetAppRawLogsVm>;
-
-    async fn get_channel_by_id(&self, id: &str) -> Result<ChannelItem>;
-
-    async fn list_channels(&self) -> Result<ChannelItemPage>;
-
-    async fn list_channels_next(&self, previous: &ChannelItemPage) -> Result<ChannelItemPage>;
-
-    async fn add_channel(
-        &self,
-        app_id: Uuid,
-        name: String,
-        revision_selection_strategy: ChannelRevisionSelectionStrategy,
-        range_rule: Option<String>,
-        active_revision_id: Option<Uuid>,
-    ) -> anyhow::Result<Uuid>;
-
-    async fn patch_channel(
-        &self,
-        id: Uuid,
-        name: Option<String>,
-        revision_selection_strategy: Option<ChannelRevisionSelectionStrategy>,
-        range_rule: Option<String>,
-        active_revision_id: Option<Uuid>,
-        environment_variables: Option<Vec<EnvironmentVariableItem>>,
-    ) -> anyhow::Result<()>;
-
-    async fn remove_channel(&self, id: String) -> Result<()>;
 
     async fn add_revision(
         &self,
