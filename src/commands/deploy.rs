@@ -5,7 +5,6 @@ use cloud::{
     client::{Client as CloudClient, ConnectionConfig},
     CloudClientExt, CloudClientInterface,
 };
-use cloud_openapi::models::ChannelRevisionSelectionStrategy as CloudChannelRevisionSelectionStrategy;
 use oci_distribution::{token_cache, Reference, RegistryOperation};
 use spin_common::arg_parser::parse_kv;
 use spin_http::{app_info::AppInfo, routes::RoutePattern};
@@ -39,9 +38,7 @@ use database::{
     create_and_link_databases_for_existing_app, create_databases_for_new_app, link_databases,
 };
 
-const SPIN_DEPLOY_CHANNEL_NAME: &str = "spin-deploy";
-pub const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
-
+const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
 
 /// Package and upload an application to the Fermyon Cloud.
@@ -204,7 +201,7 @@ impl DeployCommand {
         println!("Deploying...");
 
         // Create or update app
-        let channel_id = match client.get_app_id(&name).await? {
+        let app_id = match client.get_app_id(&name).await? {
             Some(app_id) => {
                 let labels = application.sqlite_databases();
                 if !labels.is_empty()
@@ -224,21 +221,6 @@ impl DeployCommand {
                 client
                     .add_revision(storage_id.clone(), version.clone())
                     .await?;
-                let existing_channel_id = client
-                    .get_channel_id(app_id, SPIN_DEPLOY_CHANNEL_NAME)
-                    .await?;
-                let active_revision_id = client.get_revision_id(app_id, &version).await?;
-                client
-                    .patch_channel(
-                        existing_channel_id,
-                        None,
-                        Some(CloudChannelRevisionSelectionStrategy::UseSpecifiedRevision),
-                        None,
-                        Some(active_revision_id),
-                        None,
-                    )
-                    .await
-                    .context("Problem patching a channel")?;
 
                 for kv in self.key_values {
                     client
@@ -249,7 +231,7 @@ impl DeployCommand {
 
                 set_variables(&client, app_id, &self.variables).await?;
 
-                existing_channel_id
+                app_id
             }
             None => {
                 let labels = application.sqlite_databases();
@@ -273,19 +255,6 @@ impl DeployCommand {
                     .add_revision(storage_id.clone(), version.clone())
                     .await?;
 
-                let active_revision_id = client.get_revision_id(app_id, &version).await?;
-
-                let channel_id = client
-                    .add_channel(
-                        app_id,
-                        String::from(SPIN_DEPLOY_CHANNEL_NAME),
-                        CloudChannelRevisionSelectionStrategy::UseSpecifiedRevision,
-                        None,
-                        Some(active_revision_id),
-                    )
-                    .await
-                    .context("Problem creating a channel")?;
-
                 for kv in self.key_values {
                     client
                         .add_key_value_pair(app_id, SPIN_DEFAULT_KV_STORE.to_string(), kv.0, kv.1)
@@ -295,15 +264,16 @@ impl DeployCommand {
 
                 set_variables(&client, app_id, &self.variables).await?;
 
-                channel_id
+                app_id
             }
         };
 
-        let channel = client
-            .get_channel_by_id(&channel_id.to_string())
+        let app = client
+            .get_app(app_id.to_string())
             .await
-            .context("Problem getting channel by id")?;
-        let app_base_url = build_app_base_url(&channel.domain, &login_connection.url)?;
+            .context("Problem getting app by id")?;
+
+        let app_base_url = build_app_base_url(&app.subdomain, &login_connection.url)?;
         let (http_base, http_routes) = application.http_routes();
         if !http_routes.is_empty() {
             wait_for_ready(
@@ -316,7 +286,7 @@ impl DeployCommand {
             let base = http_base.unwrap_or_else(|| "/".to_owned());
             print_available_routes(&name, &app_base_url, &base, &http_routes);
         } else {
-            println!("Application is running at {}", channel.domain);
+            println!("Application is running at {}", app.subdomain);
         }
 
         Ok(())
