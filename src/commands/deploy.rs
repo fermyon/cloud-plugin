@@ -253,7 +253,8 @@ impl DeployCommand {
 
                 client
                     .add_revision(storage_id.clone(), version.clone())
-                    .await?;
+                    .await
+                    .context(format!("Unable to upload {}", version.clone()))?;
 
                 for kv in self.key_values {
                     client
