@@ -24,6 +24,12 @@ impl ResourceLinks {
     pub fn new(name: String, links: Vec<ResourceLabel>) -> Self {
         Self { name, links }
     }
+
+    pub fn has_link(&self, label: &str, app: Option<&str>) -> bool {
+        self.links
+            .iter()
+            .any(|l| l.label == label && l.app_name.as_deref() == app)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -251,10 +257,10 @@ pub fn capitalize(s: &str) -> String {
     }
 }
 
-pub fn find_resource_link(store: &ResourceLinks, label: &str) -> Option<Link> {
-    store.links.iter().find_map(|r| {
+pub fn find_resource_link(links: &ResourceLinks, label: &str) -> Option<Link> {
+    links.links.iter().find_map(|r| {
         if r.label == label {
-            Some(Link::new(r.clone(), store.name.clone()))
+            Some(Link::new(r.clone(), links.name.clone()))
         } else {
             None
         }
