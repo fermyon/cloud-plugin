@@ -310,6 +310,7 @@ impl DeployCommand {
                 spin_loader::from_file(
                     &app_file,
                     spin_loader::FilesMountStrategy::Copy(working_dir.to_owned()),
+                    None,
                 )
                 .await?
             }
