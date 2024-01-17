@@ -1782,8 +1782,8 @@ dependencies = [
 
 [[package]]
 name = "outbound-http"
-version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
+version = "2.1.0"
+source = "git+https://github.com/fermyon/spin?rev=4ca3a56153a1d85b176ffd05804a476a59deb4ea#4ca3a56153a1d85b176ffd05804a476a59deb4ea"
 dependencies = [
  "anyhow",
  "http",
@@ -2436,8 +2436,8 @@ dependencies = [
 
 [[package]]
 name = "spin-common"
-version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
+version = "2.1.0"
+source = "git+https://github.com/fermyon/spin?rev=4ca3a56153a1d85b176ffd05804a476a59deb4ea#4ca3a56153a1d85b176ffd05804a476a59deb4ea"
 dependencies = [
  "anyhow",
  "dirs 4.0.0",
@@ -2449,8 +2449,8 @@ dependencies = [
 
 [[package]]
 name = "spin-http"
-version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
+version = "2.1.0"
+source = "git+https://github.com/fermyon/spin?rev=4ca3a56153a1d85b176ffd05804a476a59deb4ea#4ca3a56153a1d85b176ffd05804a476a59deb4ea"
 dependencies = [
  "anyhow",
  "http",
@@ -2465,8 +2465,8 @@ dependencies = [
 
 [[package]]
 name = "spin-loader"
-version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
+version = "2.1.0"
+source = "git+https://github.com/fermyon/spin?rev=4ca3a56153a1d85b176ffd05804a476a59deb4ea#4ca3a56153a1d85b176ffd05804a476a59deb4ea"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2503,8 +2503,8 @@ dependencies = [
 
 [[package]]
 name = "spin-locked-app"
-version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
+version = "2.1.0"
+source = "git+https://github.com/fermyon/spin?rev=4ca3a56153a1d85b176ffd05804a476a59deb4ea#4ca3a56153a1d85b176ffd05804a476a59deb4ea"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2517,8 +2517,8 @@ dependencies = [
 
 [[package]]
 name = "spin-manifest"
-version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
+version = "2.1.0"
+source = "git+https://github.com/fermyon/spin?rev=4ca3a56153a1d85b176ffd05804a476a59deb4ea#4ca3a56153a1d85b176ffd05804a476a59deb4ea"
 dependencies = [
  "anyhow",
  "indexmap 1.9.3",
@@ -2532,8 +2532,8 @@ dependencies = [
 
 [[package]]
 name = "spin-oci"
-version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
+version = "2.1.0"
+source = "git+https://github.com/fermyon/spin?rev=4ca3a56153a1d85b176ffd05804a476a59deb4ea#4ca3a56153a1d85b176ffd05804a476a59deb4ea"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -2560,19 +2560,20 @@ dependencies = [
 
 [[package]]
 name = "spin-outbound-networking"
-version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
+version = "2.1.0"
+source = "git+https://github.com/fermyon/spin?rev=4ca3a56153a1d85b176ffd05804a476a59deb4ea#4ca3a56153a1d85b176ffd05804a476a59deb4ea"
 dependencies = [
  "anyhow",
  "spin-locked-app",
  "terminal",
  "url",
+ "urlencoding",
 ]
 
 [[package]]
 name = "spin-serde"
-version = "2.0.0-rc.1"
-source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
+version = "2.1.0"
+source = "git+https://github.com/fermyon/spin?rev=4ca3a56153a1d85b176ffd05804a476a59deb4ea#4ca3a56153a1d85b176ffd05804a476a59deb4ea"
 dependencies = [
  "base64 0.21.5",
  "serde",
@@ -2713,7 +2714,7 @@ dependencies = [
 [[package]]
 name = "terminal"
 version = "0.1.0"
-source = "git+https://github.com/fermyon/spin?rev=9672d74122e422cd8c65b8ea2381cfbe29b2389d#9672d74122e422cd8c65b8ea2381cfbe29b2389d"
+source = "git+https://github.com/fermyon/spin?rev=4ca3a56153a1d85b176ffd05804a476a59deb4ea#4ca3a56153a1d85b176ffd05804a476a59deb4ea"
 dependencies = [
  "atty",
  "once_cell",
@@ -3005,6 +3006,12 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
+
+[[package]]
+name = "urlencoding"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "uuid"
