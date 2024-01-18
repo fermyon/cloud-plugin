@@ -10,6 +10,11 @@ use cloud_openapi::{
         configuration::{ApiKey, Configuration},
         device_codes_api::api_device_codes_post,
         key_value_pairs_api::api_key_value_pairs_post,
+        key_value_stores_api::{
+            api_key_value_stores_get, api_key_value_stores_store_delete,
+            api_key_value_stores_store_links_delete, api_key_value_stores_store_links_post,
+            api_key_value_stores_store_post,
+        },
         revisions_api::{api_revisions_get, api_revisions_post},
         sql_databases_api::{
             api_sql_databases_create_post, api_sql_databases_database_links_delete,
@@ -26,8 +31,8 @@ use cloud_openapi::{
         CreateDeviceCodeCommand, CreateKeyValuePairCommand, CreateSqlDatabaseCommand,
         CreateVariablePairCommand, Database, DeleteSqlDatabaseCommand, DeleteVariablePairCommand,
         DeviceCodeItem, EnvironmentVariableItem, ExecuteSqlStatementCommand, GetAppLogsVm,
-        GetAppRawLogsVm, GetSqlDatabasesQuery, GetVariablesQuery, RefreshTokenCommand,
-        RegisterRevisionCommand, ResourceLabel, RevisionItemPage, TokenInfo,
+        GetAppRawLogsVm, GetSqlDatabasesQuery, GetVariablesQuery, KeyValueStoreItem,
+        RefreshTokenCommand, RegisterRevisionCommand, ResourceLabel, RevisionItemPage, TokenInfo,
     },
 };
 use reqwest::header;
@@ -232,6 +237,7 @@ impl CloudClientInterface for Client {
         .map_err(format_response_error)
     }
 
+    // Key value API methods
     async fn add_key_value_pair(
         &self,
         app_id: Uuid,
@@ -242,11 +248,72 @@ impl CloudClientInterface for Client {
         api_key_value_pairs_post(
             &self.configuration,
             CreateKeyValuePairCommand {
-                app_id,
-                store_name,
+                app_id: Some(app_id),
+                store_name: Some(store_name),
                 key,
                 value,
+                label: None,
             },
+            None,
+        )
+        .await
+        .map_err(format_response_error)
+    }
+
+    async fn create_key_value_store(
+        &self,
+        store_name: &str,
+        resource_label: Option<ResourceLabel>,
+    ) -> anyhow::Result<()> {
+        api_key_value_stores_store_post(&self.configuration, store_name, None, resource_label)
+            .await
+            .map_err(format_response_error)
+    }
+
+    async fn delete_key_value_store(&self, store_name: &str) -> anyhow::Result<()> {
+        api_key_value_stores_store_delete(&self.configuration, store_name, None)
+            .await
+            .map_err(format_response_error)
+    }
+
+    async fn get_key_value_stores(
+        &self,
+        app_id: Option<Uuid>,
+    ) -> anyhow::Result<Vec<KeyValueStoreItem>> {
+        let list = api_key_value_stores_get(
+            &self.configuration,
+            app_id.map(|id| id.to_string()).as_deref(),
+            None,
+        )
+        .await
+        .map_err(format_response_error)?;
+        Ok(list.key_value_stores)
+    }
+
+    async fn create_key_value_store_link(
+        &self,
+        key_value_store: &str,
+        resource_label: ResourceLabel,
+    ) -> anyhow::Result<()> {
+        api_key_value_stores_store_links_post(
+            &self.configuration,
+            key_value_store,
+            resource_label,
+            None,
+        )
+        .await
+        .map_err(format_response_error)
+    }
+
+    async fn remove_key_value_store_link(
+        &self,
+        key_value_store: &str,
+        resource_label: ResourceLabel,
+    ) -> anyhow::Result<()> {
+        api_key_value_stores_store_links_delete(
+            &self.configuration,
+            key_value_store,
+            resource_label,
             None,
         )
         .await
@@ -335,10 +402,10 @@ impl CloudClientInterface for Client {
     async fn get_databases(&self, app_id: Option<Uuid>) -> anyhow::Result<Vec<Database>> {
         let list = api_sql_databases_get(
             &self.configuration,
-            GetSqlDatabasesQuery {
-                app_id: Some(app_id),
-            },
+            app_id.map(|id| id.to_string()).as_deref(),
             None,
+            // TODO: set to None when the API is updated to not require a body
+            Some(GetSqlDatabasesQuery { app_id: None }),
         )
         .await
         .map_err(format_response_error)?;

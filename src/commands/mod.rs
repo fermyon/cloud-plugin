@@ -1,6 +1,8 @@
 pub mod apps;
 pub mod deploy;
+pub mod key_value;
 pub mod link;
+pub mod links_output;
 pub mod login;
 pub mod logs;
 pub mod sqlite;

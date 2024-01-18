@@ -51,7 +51,7 @@ openssl = { version = "0.10" }
 
 [workspace.dependencies]
 tracing = { version = "0.1", features = ["log"] }
-cloud-openapi = { git = "https://github.com/fermyon/cloud-openapi", rev = "ce1e916110b9a9e59a1171ac364f0b6e23908428" }
+cloud-openapi = { git = "https://github.com/fermyon/cloud-openapi", rev = "a461b586e35a0175810d6da80a8e8ffeb2d517a4" }
 
 [build-dependencies]
 vergen = { version = "^8.2.1", default-features = false, features = [
