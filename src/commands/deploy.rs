@@ -36,10 +36,6 @@ use crate::{
 
 mod database;
 
-use database::{
-    create_and_link_resources_for_existing_app, create_resources_for_new_app, link_resources,
-};
-
 const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
 
@@ -211,43 +207,18 @@ impl DeployCommand {
         // Create or update app
         let app_id = match client.get_app_id(&name).await? {
             Some(app_id) => {
-                let db_labels = application.sqlite_databases();
-                if !db_labels.is_empty()
-                    && create_and_link_resources_for_existing_app(
-                        &client,
-                        &name,
-                        app_id,
-                        db_labels,
-                        interact.as_ref(),
-                        ResourceType::Database,
-                    )
-                    .await?
-                    .is_none()
-                {
-                    // User canceled terminal interaction
-                    // TODO: Clean up created databases and kv stores
-                    return Ok(());
-                }
-                if !kv_labels.is_empty()
-                    && create_and_link_resources_for_existing_app(
-                        &client,
-                        &name,
-                        app_id,
-                        kv_labels,
-                        interact.as_ref(),
-                        ResourceType::KeyValueStore,
-                    )
-                    .await?
-                    .is_none()
-                {
-                    // User canceled terminal interaction
-                    // TODO: Clean up created databases and kv stores
-                    return Ok(());
-                }
+                database::create_and_link_resources_for_existing_app(
+                    &client,
+                    &name,
+                    app_id,
+                    db_labels,
+                    kv_labels,
+                    interact.as_ref(),
+                )
+                .await?;
                 client
                     .add_revision(storage_id.clone(), version.clone())
                     .await?;
-
                 // We have already checked that default kv store exists
                 for kv in self.key_values {
                     client
@@ -261,29 +232,16 @@ impl DeployCommand {
                 app_id
             }
             None => {
-                let databases_to_link = match create_resources_for_new_app(
+                let resources_to_link = match database::create_resources_for_new_app(
                     &client,
                     &name,
                     db_labels,
+                    kv_labels,
                     interact.as_ref(),
-                    ResourceType::Database,
                 )
                 .await?
                 {
                     Some(dbs) => dbs,
-                    // TODO: Clean up created databases and kv stores
-                    None => return Ok(()), // User canceled terminal interaction
-                };
-                let stores_to_link = match create_resources_for_new_app(
-                    &client,
-                    &name,
-                    kv_labels,
-                    interact.as_ref(),
-                    ResourceType::KeyValueStore,
-                )
-                .await?
-                {
-                    Some(stores) => stores,
                     // TODO: Clean up created databases and kv stores
                     None => return Ok(()), // User canceled terminal interaction
                 };
@@ -293,23 +251,7 @@ impl DeployCommand {
                     .context("Unable to create app")?;
 
                 // Now that the app has been created, we can link resources to it.
-                link_resources(
-                    &client,
-                    &name,
-                    app_id,
-                    databases_to_link,
-                    ResourceType::Database,
-                )
-                .await?;
-                link_resources(
-                    &client,
-                    &name,
-                    app_id,
-                    stores_to_link,
-                    ResourceType::KeyValueStore,
-                )
-                .await?;
-
+                database::link_resources(&client, &name, app_id, resources_to_link).await?;
                 client
                     .add_revision(storage_id.clone(), version.clone())
                     .await
@@ -1028,34 +970,34 @@ fn parse_linkage_specs(links: &[impl AsRef<str>]) -> anyhow::Result<database::Sc
     let mut strategy = database::Scripted::default();
 
     for link in links.iter().map(|s| s.as_ref().parse::<LinkageSpec>()) {
-        match link? {
-            LinkageSpec::SqliteLabel { label, name } => strategy.set_label_action(&label, name)?,
-            LinkageSpec::KeyValueLabel { label, name } => {
-                strategy.set_label_action(&label, name)?
-            }
-        };
+        let link = link?;
+        strategy.set_label_action(&link.label, link.resource_name, link.resource_type)?;
     }
     Ok(strategy)
 }
 
-enum LinkageSpec {
-    SqliteLabel {
-        label: String,
-        name: database::DatabaseRef,
-    },
-    KeyValueLabel {
-        label: String,
-        name: database::DatabaseRef,
-    },
+struct LinkageSpec {
+    label: String,
+    resource_name: String,
+    resource_type: ResourceType,
 }
 
-// implement from string for LinkageSpec
+impl LinkageSpec {
+    fn new(label: String, resource_name: String, resource_type: ResourceType) -> Self {
+        LinkageSpec {
+            label,
+            resource_name,
+            resource_type,
+        }
+    }
+}
+
 impl FromStr for LinkageSpec {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let Some((resource_type, pair)) = s.split_once(':') else {
-            bail!("Links must be of the form '<resource-identifier>:label=resource'");
+        let Some((resource_str, pair)) = s.split_once(':') else {
+            bail!("Links must be of the form 'sqlite:label=database' or 'kv:label=store'");
         };
 
         let Some((label, resource)) = pair.split_once('=') else {
@@ -1065,16 +1007,16 @@ impl FromStr for LinkageSpec {
         let label = label.trim();
         let resource = resource.trim();
 
-        let dbref = database::DatabaseRef::Named(resource.to_owned());
-
-        match resource_type {
-            "sqlite" => Ok(LinkageSpec::SqliteLabel {
+        match resource_str {
+            "sqlite" => Ok(LinkageSpec {
                 label: label.to_owned(),
-                name: dbref,
+                resource_name: resource.to_owned(),
+                resource_type: ResourceType::Database,
             }),
-            "kv" => Ok(LinkageSpec::KeyValueLabel {
+            "kv" => Ok(LinkageSpec {
                 label: label.to_owned(),
-                name: dbref,
+                resource_name: resource.to_owned(),
+                resource_type: ResourceType::KeyValueStore,
             }),
             _ => bail!("Links must be of the form '<resource-identifier>:label=resource"),
         }
@@ -1200,7 +1142,7 @@ mod test {
 
     #[tokio::test]
     async fn new_app_databases_are_created_and_linked() {
-        let labels = string_set(&["default", "finance"]);
+        let db_labels = string_set(&["default", "finance"]);
         let links = ["sqlite:default=def-o-rama", "sqlite:finance=excel"];
         let linkages = parse_linkage_specs(&links).unwrap();
 
@@ -1220,9 +1162,9 @@ mod test {
         let databases_to_link = database::create_resources_for_new_app(
             &client,
             "test:script-new-app",
-            labels,
+            db_labels,
+            HashSet::new(),
             &linkages,
-            ResourceType::Database,
         )
         .await
         .unwrap()
@@ -1243,7 +1185,6 @@ mod test {
             "test:script-new-app",
             uuid::Uuid::new_v4(),
             databases_to_link,
-            ResourceType::Database,
         )
         .await
         .unwrap();
@@ -1252,7 +1193,12 @@ mod test {
     #[tokio::test]
     async fn new_app_kv_stores_are_created_and_linked() {
         let kv_labels = string_set(&["default", "finance"]);
-        let links = ["sqlite:default=sqldb", "sqlite:finance=sqldb2", "kv:default=def-o-rama", "kv:finance=excel"];
+        let links = [
+            "sqlite:default=sqldb",
+            "sqlite:finance=sqldb2",
+            "kv:default=def-o-rama",
+            "kv:finance=excel",
+        ];
         let linkages = parse_linkage_specs(&links).unwrap();
 
         let mut client = cloud::MockCloudClientInterface::new();
@@ -1275,9 +1221,9 @@ mod test {
         let stores_to_link = database::create_resources_for_new_app(
             &client,
             "test:script-new-app",
+            HashSet::new(),
             kv_labels,
             &linkages,
-            ResourceType::KeyValueStore,
         )
         .await
         .unwrap()
@@ -1298,7 +1244,84 @@ mod test {
             "test:script-new-app",
             uuid::Uuid::new_v4(),
             stores_to_link,
-            ResourceType::KeyValueStore,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn new_app_kv_stores_and_databases_are_created_and_linked() {
+        let kv_labels = string_set(&["default", "finance"]);
+        let db_labels = string_set(&["default", "finance"]);
+        let links = [
+            "sqlite:default=def-o-rama",
+            "sqlite:finance=excel",
+            "kv:default=def-o-rama",
+            "kv:finance=excel",
+        ];
+        let linkages = parse_linkage_specs(&links).unwrap();
+
+        let mut client = cloud::MockCloudClientInterface::new();
+
+        client
+            .expect_get_key_value_stores()
+            .returning(|_| Ok(vec![]));
+        client
+            .expect_create_key_value_store()
+            .withf(|s, rlabel| s == "def-o-rama" && rlabel.is_none())
+            .returning(move |_, _| Ok(()));
+        client
+            .expect_get_key_value_stores()
+            .returning(|_| Ok(vec![]));
+        client
+            .expect_create_key_value_store()
+            .withf(|s, rlabel| s == "excel" && rlabel.is_none())
+            .returning(|_, _| Ok(()));
+        client.expect_get_databases().returning(|_| Ok(vec![]));
+        client
+            .expect_create_database()
+            .withf(|db, rlabel| db == "def-o-rama" && rlabel.is_none())
+            .returning(move |_, _| Ok(()));
+        client.expect_get_databases().returning(|_| Ok(vec![]));
+        client
+            .expect_create_database()
+            .withf(|db, rlabel| db == "excel" && rlabel.is_none())
+            .returning(|_, _| Ok(()));
+
+        let stores_to_link = database::create_resources_for_new_app(
+            &client,
+            "test:script-new-app",
+            db_labels,
+            kv_labels,
+            &linkages,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(4, stores_to_link.len());
+
+        client
+            .expect_create_key_value_store_link()
+            .withf(move |db, rlabel| db == "def-o-rama" && rlabel.label == "default")
+            .returning(|_, _| Ok(()));
+        client
+            .expect_create_key_value_store_link()
+            .withf(|db, rlabel| db == "excel" && rlabel.label == "finance")
+            .returning(|_, _| Ok(()));
+        client
+            .expect_create_database_link()
+            .withf(move |db, rlabel| db == "def-o-rama" && rlabel.label == "default")
+            .returning(|_, _| Ok(()));
+        client
+            .expect_create_database_link()
+            .withf(|db, rlabel| db == "excel" && rlabel.label == "finance")
+            .returning(|_, _| Ok(()));
+
+        database::link_resources(
+            &client,
+            "test:script-new-app",
+            uuid::Uuid::new_v4(),
+            stores_to_link,
         )
         .await
         .unwrap();

@@ -3,24 +3,25 @@ use anyhow::{anyhow, bail, Context, Result};
 use cloud::CloudClientInterface;
 use cloud_openapi::models::ResourceLabel;
 
+use crate::commands::links_output::ResourceLinks;
+use crate::commands::links_output::ResourceType;
+use crate::random_name::RandomNameGenerator;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-use crate::commands::links_output::ResourceLinks;
-use crate::commands::links_output::ResourceType;
-use crate::random_name::RandomNameGenerator;
+use super::LinkageSpec;
 
-/// A user's selection of a database to link to a label
+/// A user's selection of a resource to link to a label
 pub(super) enum ResourceSelection {
     Existing(String),
     New(String),
     Cancelled,
 }
 
-/// Whether a database has already been linked or not
-enum ExistingAppDatabaseSelection {
+/// Whether a resource has already been linked or not
+enum ExistingAppResourceSelection {
     NotYetLinked(ResourceSelection),
     AlreadyLinked,
 }
@@ -51,13 +52,13 @@ async fn get_resource_selection_for_existing_app(
     resource_label: &ResourceLabel,
     interact: &dyn InteractionStrategy,
     resource_type: ResourceType,
-) -> Result<ExistingAppDatabaseSelection> {
+) -> Result<ExistingAppResourceSelection> {
     let resources = get_resources(client, resource_type).await?;
     if resources
         .iter()
         .any(|d| d.has_link(&resource_label.label, resource_label.app_name.as_deref()))
     {
-        return Ok(ExistingAppDatabaseSelection::AlreadyLinked);
+        return Ok(ExistingAppResourceSelection::AlreadyLinked);
     }
     let selection = interact.prompt_resource_selection(
         name,
@@ -65,7 +66,7 @@ async fn get_resource_selection_for_existing_app(
         resources,
         resource_type,
     )?;
-    Ok(ExistingAppDatabaseSelection::NotYetLinked(selection))
+    Ok(ExistingAppResourceSelection::NotYetLinked(selection))
 }
 
 async fn get_resource_selection_for_new_app(
@@ -188,31 +189,27 @@ impl Interactive {
 
 #[derive(Default)]
 pub(super) struct Scripted {
-    labels_to_dbs: HashMap<String, DatabaseRef>,
+    kv_labels_to_resource: HashMap<String, String>,
+    db_labels_to_resource: HashMap<String, String>,
 }
 
 impl Scripted {
-    pub(super) fn set_label_action(&mut self, label: &str, db: DatabaseRef) -> anyhow::Result<()> {
-        match self.labels_to_dbs.entry(label.to_owned()) {
-            Entry::Occupied(_) => bail!("Label {label} is linked more than once"),
-            Entry::Vacant(e) => e.insert(db),
+    pub(super) fn set_label_action(
+        &mut self,
+        label: &str,
+        resource_name: String,
+        resource_type: ResourceType,
+    ) -> anyhow::Result<()> {
+        let labels_to_resource = match resource_type {
+            ResourceType::Database => &mut self.db_labels_to_resource,
+            ResourceType::KeyValueStore => &mut self.kv_labels_to_resource,
         };
-        println!("Labels are {:?}", self.labels_to_dbs);
+        match labels_to_resource.entry(label.to_owned()) {
+            Entry::Occupied(_) => bail!("Label {label} is linked more than once"),
+            Entry::Vacant(e) => e.insert(resource_name),
+        };
         Ok(())
     }
-}
-
-// Using an enum to allow for future "any other db label" linking
-#[derive(Clone, Debug, Default)]
-pub(super) enum DefaultLabelAction {
-    #[default]
-    Reject,
-}
-
-// Using an enum to allow for future "create new and link that" linking
-#[derive(Clone, Debug)]
-pub(super) enum DatabaseRef {
-    Named(String),
 }
 
 impl InteractionStrategy for Scripted {
@@ -221,71 +218,86 @@ impl InteractionStrategy for Scripted {
         _name: &str,
         label: &str,
         resources: Vec<ResourceLinks>,
-        _resource_type: ResourceType,
+        resource_type: ResourceType,
     ) -> Result<ResourceSelection> {
-        let existing_names: HashSet<&str> = resources.iter().map(|db| db.name.as_str()).collect();
-        let requested_db = self.db_ref_for(label)?;
-        match requested_db {
-            DatabaseRef::Named(requested_db) => {
-                let name = requested_db.to_owned();
-                if existing_names.contains(name.as_str()) {
-                    Ok(ResourceSelection::Existing(name))
-                } else {
-                    Ok(ResourceSelection::New(name))
-                }
-            }
+        let existing_names: HashSet<&str> = resources
+            .iter()
+            .map(|resource| resource.name.as_str())
+            .collect();
+        let requested_resource = self.resource_for(label, resource_type)?;
+        if existing_names.contains(requested_resource) {
+            Ok(ResourceSelection::Existing(requested_resource.to_owned()))
+        } else {
+            Ok(ResourceSelection::New(requested_resource.to_owned()))
         }
     }
 }
 
 impl Scripted {
-    fn db_ref_for(&self, label: &str) -> anyhow::Result<&DatabaseRef> {
-        match self.labels_to_dbs.get(label) {
-            Some(db_ref) => Ok(db_ref),
+    fn resource_for(&self, label: &str, resource_type: ResourceType) -> anyhow::Result<&str> {
+        let resource = match resource_type {
+            ResourceType::Database => self.db_labels_to_resource.get(label),
+            ResourceType::KeyValueStore => self.kv_labels_to_resource.get(label),
+        };
+        match resource {
+            Some(resource_ref) => Ok(resource_ref),
             None => Err(anyhow!("No link specified for label '{label}'")),
         }
     }
 }
 
 // Loops through an app's manifest and creates resources.
-// Returns a list of resource and label pairs that should be
-// linked to the app once it is created.
+// Returns a list of linkages that should be resolved
+// once the app is created.
 // Returns None if the user canceled terminal interaction
 pub(super) async fn create_resources_for_new_app(
     client: &impl CloudClientInterface,
-    name: &str,
-    labels: HashSet<String>,
+    app_name: &str,
+    db_labels: HashSet<String>,
+    kv_labels: HashSet<String>,
     interact: &dyn InteractionStrategy,
-    resource_type: ResourceType,
-) -> anyhow::Result<Option<Vec<(String, String)>>> {
-    let mut resources_to_link = Vec::new();
-    for label in labels {
-        let r =
-            match get_resource_selection_for_new_app(name, client, &label, interact, resource_type)
-                .await?
-            {
-                ResourceSelection::Existing(r) => r,
-                ResourceSelection::New(r) => {
-                    match resource_type {
-                        ResourceType::Database => {
-                            client
-                                .create_database(r.clone(), None)
-                                .await
-                                .context("Could not create database")?;
-                        }
-                        ResourceType::KeyValueStore => {
-                            client
-                                .create_key_value_store(&r, None)
-                                .await
-                                .context("Could not create key value store")?;
-                        }
+) -> anyhow::Result<Option<Vec<LinkageSpec>>> {
+    let mut resources_to_link: Vec<LinkageSpec> = Vec::new();
+    let db_label_types = db_labels.into_iter().map(|l| (l, ResourceType::Database));
+    let kv_label_types = kv_labels
+        .into_iter()
+        .map(|l| (l, ResourceType::KeyValueStore));
+    let label_types = db_label_types
+        .chain(kv_label_types)
+        .collect::<Vec<(_, _)>>();
+    println!("Creating resources {label_types:?}");
+    for (label, resource_type) in label_types {
+        let resource = match get_resource_selection_for_new_app(
+            app_name,
+            client,
+            &label,
+            interact,
+            resource_type,
+        )
+        .await?
+        {
+            ResourceSelection::Existing(r) => r,
+            ResourceSelection::New(r) => {
+                match resource_type {
+                    ResourceType::Database => {
+                        client
+                            .create_database(r.clone(), None)
+                            .await
+                            .context("Could not create database")?;
                     }
-                    r
+                    ResourceType::KeyValueStore => {
+                        client
+                            .create_key_value_store(&r, None)
+                            .await
+                            .context("Could not create key value store")?;
+                    }
                 }
-                // User canceled terminal interaction
-                ResourceSelection::Cancelled => return Ok(None),
-            };
-        resources_to_link.push((r, label));
+                r
+            }
+            // User canceled terminal interaction
+            ResourceSelection::Cancelled => return Ok(None),
+        };
+        resources_to_link.push(LinkageSpec::new(label, resource, resource_type));
     }
     Ok(Some(resources_to_link))
 }
@@ -295,18 +307,25 @@ pub(super) async fn create_resources_for_new_app(
 pub(super) async fn create_and_link_resources_for_existing_app(
     client: &impl CloudClientInterface,
     app_name: &str,
-    app_id: Uuid,
-    labels: HashSet<String>,
+    app_id: uuid::Uuid,
+    db_labels: HashSet<String>,
+    kv_labels: HashSet<String>,
     interact: &dyn InteractionStrategy,
-    resource_type: ResourceType,
 ) -> anyhow::Result<Option<()>> {
-    for label in labels {
+    let db_label_types = db_labels.into_iter().map(|l| (l, ResourceType::Database));
+    let kv_label_types = kv_labels
+        .into_iter()
+        .map(|l| (l, ResourceType::KeyValueStore));
+    let label_types = db_label_types
+        .chain(kv_label_types)
+        .collect::<Vec<(_, _)>>();
+    for (label, resource_type) in label_types {
         let resource_label = ResourceLabel {
             app_id,
             label,
             app_name: Some(app_name.to_string()),
         };
-        if let ExistingAppDatabaseSelection::NotYetLinked(selection) =
+        if let ExistingAppResourceSelection::NotYetLinked(selection) =
             get_resource_selection_for_existing_app(
                 app_name,
                 client,
@@ -319,15 +338,15 @@ pub(super) async fn create_and_link_resources_for_existing_app(
             match selection {
                 // User canceled terminal interaction
                 ResourceSelection::Cancelled => return Ok(None),
-                ResourceSelection::New(r) => match resource_type {
+                ResourceSelection::New(resource) => match resource_type {
                     ResourceType::Database => {
                         client
-                            .create_database(r.clone(), Some(resource_label))
+                            .create_database(resource, Some(resource_label))
                             .await?;
                     }
                     ResourceType::KeyValueStore => {
                         client
-                            .create_key_value_store(&r, Some(resource_label))
+                            .create_key_value_store(&resource, Some(resource_label))
                             .await?;
                     }
                 },
@@ -365,35 +384,34 @@ pub(super) async fn link_resources(
     client: &impl CloudClientInterface,
     app_name: &str,
     app_id: Uuid,
-    resource_labels: Vec<(String, String)>,
-    resource_type: ResourceType,
+    linkages: Vec<LinkageSpec>,
 ) -> anyhow::Result<()> {
-    for (resource, label) in resource_labels {
+    for link in linkages {
         let resource_label = ResourceLabel {
-            label,
+            label: link.label,
             app_id,
             app_name: Some(app_name.to_owned()),
         };
-        match resource_type {
+        match link.resource_type {
             ResourceType::Database => {
                 client
-                    .create_database_link(&resource, resource_label)
+                    .create_database_link(&link.resource_name, resource_label)
                     .await
                     .with_context(|| {
                         format!(
-                            r#"Failed to link {resource_type} "{}" to app "{}""#,
-                            resource, app_name
+                            r#"Failed to link {} "{}" to app "{}""#,
+                            link.resource_type, link.resource_name, app_name
                         )
                     })?;
             }
             ResourceType::KeyValueStore => {
                 client
-                    .create_key_value_store_link(&resource, resource_label)
+                    .create_key_value_store_link(&link.resource_name, resource_label)
                     .await
                     .with_context(|| {
                         format!(
-                            r#"Failed to link {resource_type} "{}" to app "{}""#,
-                            resource, app_name
+                            r#"Failed to link {} "{}" to app "{}""#,
+                            link.resource_type, link.resource_name, app_name
                         )
                     })?;
             }
