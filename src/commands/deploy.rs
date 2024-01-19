@@ -224,7 +224,12 @@ impl DeployCommand {
 
                 for kv in self.key_values {
                     client
-                        .add_key_value_pair(app_id, SPIN_DEFAULT_KV_STORE.to_string(), kv.0, kv.1)
+                        .add_key_value_pair(
+                            Some(app_id),
+                            SPIN_DEFAULT_KV_STORE.to_string(),
+                            kv.0,
+                            kv.1,
+                        )
                         .await
                         .context("Problem creating key/value")?;
                 }
@@ -258,7 +263,12 @@ impl DeployCommand {
 
                 for kv in self.key_values {
                     client
-                        .add_key_value_pair(app_id, SPIN_DEFAULT_KV_STORE.to_string(), kv.0, kv.1)
+                        .add_key_value_pair(
+                            Some(app_id),
+                            SPIN_DEFAULT_KV_STORE.to_string(),
+                            kv.0,
+                            kv.1,
+                        )
                         .await
                         .context("Problem creating key/value")?;
                 }

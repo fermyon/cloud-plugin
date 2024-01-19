@@ -49,7 +49,7 @@ pub trait CloudClientInterface: Send + Sync {
 
     async fn add_key_value_pair(
         &self,
-        app_id: Uuid,
+        app_id: Option<Uuid>,
         store_name: String,
         key: String,
         value: String,

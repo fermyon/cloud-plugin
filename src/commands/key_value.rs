@@ -2,10 +2,13 @@ use crate::commands::links_output::{
     print_json, print_table, prompt_delete_resource, ListFormat, ResourceGroupBy, ResourceLinks,
     ResourceType,
 };
-use crate::commands::{create_cloud_client, CommonArgs};
+use crate::commands::links_target::ResourceTarget;
+use crate::commands::{create_cloud_client, disallow_empty, CommonArgs};
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
 use cloud::CloudClientInterface;
+use cloud_openapi::models::KeyValueStoreItem;
+use spin_common::arg_parser::parse_kv;
 
 #[derive(Parser, Debug)]
 #[clap(about = "Manage Fermyon Cloud key value stores")]
@@ -16,6 +19,8 @@ pub enum KeyValueCommand {
     Delete(DeleteCommand),
     /// List key value stores
     List(ListCommand),
+    /// Set a key value pair in a store
+    Set(SetCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -74,6 +79,29 @@ impl From<GroupBy> for ResourceGroupBy {
     }
 }
 
+#[derive(Parser, Debug)]
+pub struct SetCommand {
+    /// The name of the key value store
+    #[clap(name = "STORE", short = 's', long = "store", value_parser = clap::builder::ValueParser::new(disallow_empty), required_unless_present_all = ["LABEL", "APP"], conflicts_with_all = &["LABEL", "APP"])]
+    pub store: Option<String>,
+
+    /// Label of the key value store to set pairs in
+    #[clap(name = "LABEL", short = 'l', long = "label", value_parser = clap::builder::ValueParser::new(disallow_empty), requires = "APP", required_unless_present = "STORE")]
+    pub label: Option<String>,
+
+    /// App to which label relates
+    #[clap(name = "APP", short = 'a', long = "app", value_parser = clap::builder::ValueParser::new(disallow_empty), requires = "LABEL", required_unless_present = "STORE")]
+    pub app: Option<String>,
+
+    /// A key/value pair (key=value) to set in the store. Any existing value will be overwritten.
+    /// Can be used multiple times.
+    #[clap(parse(try_from_str = parse_kv))]
+    pub key_values: Vec<(String, String)>,
+
+    #[clap(flatten)]
+    common: CommonArgs,
+}
+
 impl KeyValueCommand {
     pub async fn run(&self) -> Result<()> {
         match self {
@@ -86,6 +114,10 @@ impl KeyValueCommand {
                 cmd.run(client).await
             }
             KeyValueCommand::List(cmd) => {
+                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
+                cmd.run(client).await
+            }
+            KeyValueCommand::Set(cmd) => {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
                 cmd.run(client).await
             }
@@ -165,6 +197,39 @@ impl ListCommand {
         }
     }
 }
+
+impl SetCommand {
+    pub async fn run(&self, client: impl CloudClientInterface) -> Result<()> {
+        let target = ResourceTarget::from_inputs(&self.store, &self.label, &self.app)?;
+        let stores = client
+            .get_key_value_stores(None)
+            .await
+            .context("Problem fetching key value stores")?;
+        let store = target
+            .find_in(to_resource_links(stores), ResourceType::KeyValueStore)?
+            .name;
+        for (key, value) in &self.key_values {
+            client
+                .add_key_value_pair(None, store.clone(), key.clone(), value.clone())
+                .await
+                .with_context(|| {
+                    format!(
+                        "Error adding key value pair '{key}={value}' to store '{}'",
+                        store
+                    )
+                })?;
+        }
+        Ok(())
+    }
+}
+
+fn to_resource_links(stores: Vec<KeyValueStoreItem>) -> Vec<ResourceLinks> {
+    stores
+        .into_iter()
+        .map(|s| ResourceLinks::new(s.name, s.links))
+        .collect()
+}
+
 #[cfg(test)]
 mod key_value_tests {
     use super::*;
