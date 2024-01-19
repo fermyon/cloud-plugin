@@ -3,6 +3,7 @@ pub mod deploy;
 pub mod key_value;
 pub mod link;
 pub mod links_output;
+pub mod links_target;
 pub mod login;
 pub mod logs;
 pub mod sqlite;
@@ -53,4 +54,11 @@ struct CommonArgs {
         hidden = true
     )]
     pub deployment_env_id: Option<String>,
+}
+
+fn disallow_empty(statement: &str) -> anyhow::Result<String> {
+    if statement.trim().is_empty() {
+        anyhow::bail!("cannot be empty");
+    }
+    return Ok(statement.trim().to_owned());
 }

@@ -15,6 +15,7 @@ pub enum ListFormat {
     Json,
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub struct ResourceLinks {
     pub name: String,
     pub links: Vec<ResourceLabel>,
@@ -23,6 +24,12 @@ pub struct ResourceLinks {
 impl ResourceLinks {
     pub fn new(name: String, links: Vec<ResourceLabel>) -> Self {
         Self { name, links }
+    }
+
+    pub fn has_link(&self, label: &str, app: Option<&str>) -> bool {
+        self.links
+            .iter()
+            .any(|l| l.label == label && l.app_name.as_deref() == app)
     }
 }
 

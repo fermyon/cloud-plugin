@@ -1,4 +1,5 @@
-use crate::commands::{create_cloud_client, CommonArgs};
+use crate::commands::links_target::ResourceTarget;
+use crate::commands::{create_cloud_client, disallow_empty, CommonArgs};
 use anyhow::bail;
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
@@ -82,13 +83,6 @@ pub struct RenameCommand {
 
     #[clap(flatten)]
     common: CommonArgs,
-}
-
-fn disallow_empty(statement: &str) -> anyhow::Result<String> {
-    if statement.trim().is_empty() {
-        anyhow::bail!("cannot be empty");
-    }
-    return Ok(statement.trim().to_owned());
 }
 
 #[derive(Parser, Debug)]
@@ -213,12 +207,14 @@ impl DeleteCommand {
 
 impl ExecuteCommand {
     pub async fn run(self, client: impl CloudClientInterface) -> Result<()> {
-        let target = self.target()?;
+        let target = ResourceTarget::from_inputs(&self.database, &self.label, &self.app)?;
         let list = client
             .get_databases(None)
             .await
             .context("Problem fetching databases")?;
-        let database = target.find_in(list)?.name;
+        let database = target
+            .find_in(to_resource_links(list), ResourceType::Database)?
+            .name;
         let statement = if let Some(path) = self.statement.strip_prefix('@') {
             std::fs::read_to_string(path)
                 .with_context(|| format!("could not read sql file at '{path}'"))?
@@ -230,39 +226,6 @@ impl ExecuteCommand {
             .await
             .context("Problem executing SQL")?;
         Ok(())
-    }
-
-    fn target(&self) -> anyhow::Result<ExecuteTarget> {
-        match (&self.database, &self.label, &self.app) {
-            (Some(d), None, None) => Ok(ExecuteTarget::Database(d.to_owned())),
-            (None, Some(l), Some(a)) => Ok(ExecuteTarget::Label {
-                label: l.to_owned(),
-                app: a.to_owned(),
-            }),
-            _ => Err(anyhow::anyhow!("Invalid combination of arguments")), // Should be prevented by clap
-        }
-    }
-}
-
-enum ExecuteTarget {
-    Database(String),
-    Label { label: String, app: String },
-}
-
-impl ExecuteTarget {
-    fn find_in(&self, databases: Vec<Database>) -> anyhow::Result<Database> {
-        match self {
-            Self::Database(database) => databases
-                .into_iter()
-                .find(|d| &d.name == database)
-                .ok_or_else(|| anyhow::anyhow!("No database found with name \"{database}\"")),
-            Self::Label { label, app } => databases
-                .into_iter()
-                .find(|d| database_has_link(d, label, Some(app.as_str())))
-                .ok_or_else(|| {
-                    anyhow::anyhow!(r#"No database found with label "{label}" for app "{app}""#)
-                }),
-        }
     }
 }
 
@@ -290,10 +253,7 @@ impl ListCommand {
             }
         }
 
-        let resource_links = databases
-            .into_iter()
-            .map(|db| ResourceLinks::new(db.name, db.links))
-            .collect();
+        let resource_links = to_resource_links(databases);
         match self.format {
             ListFormat::Json => {
                 print_json(resource_links, self.app.as_deref(), ResourceType::Database)
@@ -306,6 +266,13 @@ impl ListCommand {
             ),
         }
     }
+}
+
+fn to_resource_links(databases: Vec<Database>) -> Vec<ResourceLinks> {
+    databases
+        .into_iter()
+        .map(|db| ResourceLinks::new(db.name, db.links))
+        .collect()
 }
 
 impl RenameCommand {

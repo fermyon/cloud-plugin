@@ -240,7 +240,7 @@ impl CloudClientInterface for Client {
     // Key value API methods
     async fn add_key_value_pair(
         &self,
-        app_id: Uuid,
+        app_id: Option<Uuid>,
         store_name: String,
         key: String,
         value: String,
@@ -248,7 +248,7 @@ impl CloudClientInterface for Client {
         api_key_value_pairs_post(
             &self.configuration,
             CreateKeyValuePairCommand {
-                app_id: Some(app_id),
+                app_id,
                 store_name: Some(store_name),
                 key,
                 value,
