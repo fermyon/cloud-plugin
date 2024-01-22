@@ -34,7 +34,7 @@ use crate::{
     opts::*,
 };
 
-mod database;
+mod resource;
 
 const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
@@ -207,7 +207,7 @@ impl DeployCommand {
         // Create or update app
         let app_id = match client.get_app_id(&name).await? {
             Some(app_id) => {
-                database::create_and_link_resources_for_existing_app(
+                resource::create_and_link_resources_for_existing_app(
                     &client,
                     &name,
                     app_id,
@@ -237,7 +237,7 @@ impl DeployCommand {
                 app_id
             }
             None => {
-                let resources_to_link = match database::create_resources_for_new_app(
+                let resources_to_link = match resource::create_resources_for_new_app(
                     &client,
                     &name,
                     db_labels,
@@ -256,7 +256,7 @@ impl DeployCommand {
                     .context("Unable to create app")?;
 
                 // Now that the app has been created, we can link resources to it.
-                database::link_resources(&client, &name, app_id, resources_to_link).await?;
+                resource::link_resources(&client, &name, app_id, resources_to_link).await?;
                 client
                     .add_revision(storage_id.clone(), version.clone())
                     .await
@@ -305,9 +305,9 @@ impl DeployCommand {
         Ok(())
     }
 
-    fn interaction_strategy(&self) -> anyhow::Result<Box<dyn database::InteractionStrategy>> {
+    fn interaction_strategy(&self) -> anyhow::Result<Box<dyn resource::InteractionStrategy>> {
         if self.links.is_empty() {
-            return Ok(Box::new(database::Interactive));
+            return Ok(Box::new(resource::Interactive));
         }
 
         let script = parse_linkage_specs(&self.links)?;
@@ -975,9 +975,9 @@ pub fn config_file_path(deployment_env_id: Option<&str>) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn parse_linkage_specs(links: &[impl AsRef<str>]) -> anyhow::Result<database::Scripted> {
+fn parse_linkage_specs(links: &[impl AsRef<str>]) -> anyhow::Result<resource::Scripted> {
     // TODO: would this be nicer as a fold?
-    let mut strategy = database::Scripted::default();
+    let mut strategy = resource::Scripted::default();
 
     for link in links.iter().map(|s| s.as_ref().parse::<LinkageSpec>()) {
         let link = link?;
@@ -1169,7 +1169,7 @@ mod test {
             .withf(|db, rlabel| db == "excel" && rlabel.is_none())
             .returning(|_, _| Ok(()));
 
-        let databases_to_link = database::create_resources_for_new_app(
+        let databases_to_link = resource::create_resources_for_new_app(
             &client,
             "test:script-new-app",
             db_labels,
@@ -1190,7 +1190,7 @@ mod test {
             .withf(|db, rlabel| db == "excel" && rlabel.label == "finance")
             .returning(|_, _| Ok(()));
 
-        database::link_resources(
+        resource::link_resources(
             &client,
             "test:script-new-app",
             uuid::Uuid::new_v4(),
@@ -1228,7 +1228,7 @@ mod test {
             .withf(|s, rlabel| s == "excel" && rlabel.is_none())
             .returning(|_, _| Ok(()));
 
-        let stores_to_link = database::create_resources_for_new_app(
+        let stores_to_link = resource::create_resources_for_new_app(
             &client,
             "test:script-new-app",
             HashSet::new(),
@@ -1249,7 +1249,7 @@ mod test {
             .withf(|db, rlabel| db == "excel" && rlabel.label == "finance")
             .returning(|_, _| Ok(()));
 
-        database::link_resources(
+        resource::link_resources(
             &client,
             "test:script-new-app",
             uuid::Uuid::new_v4(),
@@ -1298,7 +1298,7 @@ mod test {
             .withf(|db, rlabel| db == "excel" && rlabel.is_none())
             .returning(|_, _| Ok(()));
 
-        let stores_to_link = database::create_resources_for_new_app(
+        let stores_to_link = resource::create_resources_for_new_app(
             &client,
             "test:script-new-app",
             db_labels,
@@ -1327,7 +1327,7 @@ mod test {
             .withf(|db, rlabel| db == "excel" && rlabel.label == "finance")
             .returning(|_, _| Ok(()));
 
-        database::link_resources(
+        resource::link_resources(
             &client,
             "test:script-new-app",
             uuid::Uuid::new_v4(),
