@@ -1,4 +1,5 @@
-// TODO(kate): rename this module to something more generic like `resource`
+//! Functions for creating and linking resources (such as key value stores and
+//! databases) to apps during application deployment
 use anyhow::{anyhow, bail, Context, Result};
 use cloud::CloudClientInterface;
 use cloud_openapi::models::ResourceLabel;

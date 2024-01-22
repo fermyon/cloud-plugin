@@ -297,13 +297,6 @@ impl RenameCommand {
     }
 }
 
-pub fn database_has_link(database: &Database, label: &str, app: Option<&str>) -> bool {
-    database
-        .links
-        .iter()
-        .any(|l| l.label == label && l.app_name.as_deref() == app)
-}
-
 #[cfg(test)]
 mod sqlite_tests {
     use super::*;
