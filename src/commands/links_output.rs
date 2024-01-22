@@ -258,10 +258,10 @@ pub fn capitalize(s: &str) -> String {
     }
 }
 
-pub fn find_resource_link(store: &ResourceLinks, label: &str) -> Option<Link> {
-    store.links.iter().find_map(|r| {
+pub fn find_resource_link(links: &ResourceLinks, label: &str) -> Option<Link> {
+    links.links.iter().find_map(|r| {
         if r.label == label {
-            Some(Link::new(r.clone(), store.name.clone()))
+            Some(Link::new(r.clone(), links.name.clone()))
         } else {
             None
         }

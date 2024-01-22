@@ -43,6 +43,8 @@ use uuid::Uuid;
 use crate::CloudClientInterface;
 
 const JSON_MIME_TYPE: &str = "application/json";
+// Requested API version of cloud service
+const CLOUD_API_VERSION: &str = "1.0";
 
 pub struct Client {
     configuration: Configuration,
@@ -156,7 +158,7 @@ impl CloudClientInterface for Client {
     }
 
     async fn remove_app(&self, id: String) -> Result<()> {
-        api_apps_id_delete(&self.configuration, &id, None)
+        api_apps_id_delete(&self.configuration, &id, Some(CLOUD_API_VERSION))
             .await
             .map_err(format_response_error)
     }
@@ -210,7 +212,7 @@ impl CloudClientInterface for Client {
                 app_storage_id,
                 revision_number,
             },
-            None,
+            Some(CLOUD_API_VERSION),
         )
         .await
         .map_err(format_response_error)
