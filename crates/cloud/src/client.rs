@@ -13,7 +13,7 @@ use cloud_openapi::{
         key_value_stores_api::{
             api_key_value_stores_get, api_key_value_stores_store_delete,
             api_key_value_stores_store_links_delete, api_key_value_stores_store_links_post,
-            api_key_value_stores_store_post,
+            api_key_value_stores_store_post, api_key_value_stores_store_rename_patch,
         },
         revisions_api::{api_revisions_get, api_revisions_post},
         sql_databases_api::{
@@ -274,6 +274,12 @@ impl CloudClientInterface for Client {
 
     async fn delete_key_value_store(&self, store_name: &str) -> anyhow::Result<()> {
         api_key_value_stores_store_delete(&self.configuration, store_name, None)
+            .await
+            .map_err(format_response_error)
+    }
+
+    async fn rename_key_value_store(&self, store_name: &str, new_name: &str) -> anyhow::Result<()> {
+        api_key_value_stores_store_rename_patch(&self.configuration, store_name, new_name, None)
             .await
             .map_err(format_response_error)
     }

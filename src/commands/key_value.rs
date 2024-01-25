@@ -21,6 +21,8 @@ pub enum KeyValueCommand {
     List(ListCommand),
     /// Set a key value pair in a store
     Set(SetCommand),
+    /// Rename a key value store. All existing links will automatically link to the store's new name.
+    Rename(RenameCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -102,6 +104,18 @@ pub struct SetCommand {
     common: CommonArgs,
 }
 
+#[derive(Parser, Debug)]
+pub struct RenameCommand {
+    /// Current name of key value store to rename
+    name: String,
+
+    /// New name for the key value store
+    new_name: String,
+
+    #[clap(flatten)]
+    common: CommonArgs,
+}
+
 impl KeyValueCommand {
     pub async fn run(&self) -> Result<()> {
         match self {
@@ -118,6 +132,10 @@ impl KeyValueCommand {
                 cmd.run(client).await
             }
             KeyValueCommand::Set(cmd) => {
+                let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
+                cmd.run(client).await
+            }
+            KeyValueCommand::Rename(cmd) => {
                 let client = create_cloud_client(cmd.common.deployment_env_id.as_deref()).await?;
                 cmd.run(client).await
             }
@@ -219,6 +237,27 @@ impl SetCommand {
                     )
                 })?;
         }
+        Ok(())
+    }
+}
+
+impl RenameCommand {
+    pub async fn run(&self, client: impl CloudClientInterface) -> Result<()> {
+        let list = client
+            .get_key_value_stores(None)
+            .await
+            .with_context(|| format!("Error listing key value stores '{}'", self.name))?;
+        let found = list.iter().any(|kv| kv.name == self.name);
+        if !found {
+            bail!("No key value store found with name \"{}\"", self.name);
+        }
+        client
+            .rename_key_value_store(&self.name, &self.new_name)
+            .await?;
+        println!(
+            "Key value store \"{}\" is now named \"{}\"",
+            self.name, self.new_name
+        );
         Ok(())
     }
 }

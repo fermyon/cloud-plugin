@@ -25,7 +25,7 @@ pub enum SqliteCommand {
     Execute(ExecuteCommand),
     /// List all your SQLite databases
     List(ListCommand),
-    /// Rename a SQLite database
+    /// Rename a SQLite database. All existing links will automatically link to the database's new name.
     Rename(RenameCommand),
 }
 
