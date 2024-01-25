@@ -39,8 +39,8 @@ pub struct KeyValueStoreLinkCommand {
     /// The app that will be using the key value store
     app: String,
     /// The key value store that the app will refer to by the label
-    #[clap(short = 's', long = "key-value-store")]
-    key_value_store: String,
+    #[clap(short = 's', long = "store")]
+    store: String,
 }
 
 impl LinkCommand {
@@ -95,7 +95,7 @@ impl KeyValueStoreLinkCommand {
             .collect::<Vec<_>>();
         link(
             client,
-            &self.key_value_store,
+            &self.store,
             &self.app,
             &self.label,
             app_id,
@@ -471,7 +471,7 @@ mod link_tests {
     async fn test_key_value_store_link_error_store_does_not_exist() -> Result<()> {
         let command = KeyValueStoreLinkCommand {
             app: "app".to_string(),
-            key_value_store: "does-not-exist".to_string(),
+            store: "does-not-exist".to_string(),
             label: "label".to_string(),
             common: Default::default(),
         };
@@ -497,7 +497,7 @@ mod link_tests {
     async fn test_key_value_store_link_succeeds_when_store_exists() -> Result<()> {
         let command = KeyValueStoreLinkCommand {
             app: "app".to_string(),
-            key_value_store: "kv1".to_string(),
+            store: "kv1".to_string(),
             label: "label".to_string(),
             common: Default::default(),
         };
