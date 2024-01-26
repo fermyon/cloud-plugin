@@ -63,6 +63,8 @@ pub trait CloudClientInterface: Send + Sync {
 
     async fn delete_key_value_store(&self, store_name: &str) -> anyhow::Result<()>;
 
+    async fn rename_key_value_store(&self, store_name: &str, new_name: &str) -> anyhow::Result<()>;
+
     async fn get_key_value_stores(
         &self,
         app_id: Option<Uuid>,
