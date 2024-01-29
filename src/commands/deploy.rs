@@ -114,8 +114,9 @@ pub struct DeployCommand {
     /// non-interactive environments such as release pipelines; therefore,
     /// if any links are specified, all links must be specified.
     ///
-    /// Links must be of the form 'sqlite:label=database'. Databases that
-    /// do not exist will be created.
+    /// Links must be of the form 'sqlite:label=database' or
+    /// 'kv:label=store'. Databases or key value stores that do not exist
+    /// will be created.
     #[clap(long = "link")]
     pub links: Vec<String>,
 }
@@ -1011,7 +1012,7 @@ impl FromStr for LinkageSpec {
         };
 
         let Some((label, resource)) = pair.split_once('=') else {
-            bail!("Links must be of the form '<resource-identifier>:label=resource'");
+            bail!("Links must be of the form 'sqlite:label=database' or 'kv:label=store'");
         };
 
         let label = label.trim();
@@ -1028,7 +1029,7 @@ impl FromStr for LinkageSpec {
                 resource_name: resource.to_owned(),
                 resource_type: ResourceType::KeyValueStore,
             }),
-            _ => bail!("Links must be of the form '<resource-identifier>:label=resource"),
+            _ => bail!("Links must be of the form 'sqlite:label=database' or 'kv:label=store'"),
         }
     }
 }

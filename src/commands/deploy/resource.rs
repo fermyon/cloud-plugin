@@ -266,7 +266,6 @@ pub(super) async fn create_resources_for_new_app(
     let label_types = db_label_types
         .chain(kv_label_types)
         .collect::<Vec<(_, _)>>();
-    println!("Creating resources {label_types:?}");
     for (label, resource_type) in label_types {
         let resource = match get_resource_selection_for_new_app(
             app_name,
@@ -279,6 +278,7 @@ pub(super) async fn create_resources_for_new_app(
         {
             ResourceSelection::Existing(r) => r,
             ResourceSelection::New(r) => {
+                println!("Creating {resource_type} named '{r}'");
                 match resource_type {
                     ResourceType::Database => {
                         client
