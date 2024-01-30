@@ -11,8 +11,9 @@ use uuid::Uuid;
 pub enum LinkCommand {
     /// Link an app to a SQLite database
     Sqlite(SqliteLinkCommand),
+    /// Link an app to a Key Value Store
     #[clap(alias = "kv")]
-    KeyValueStore(KeyValueStoreLinkCommand),
+    KeyValue(KeyValueStoreLinkCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -51,7 +52,7 @@ impl LinkCommand {
                     client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.app).await?;
                 cmd.link(client, app_id).await
             }
-            Self::KeyValueStore(cmd) => {
+            Self::KeyValue(cmd) => {
                 let (client, app_id) =
                     client_and_app_id(cmd.common.deployment_env_id.as_deref(), &cmd.app).await?;
                 cmd.link(client, app_id).await
