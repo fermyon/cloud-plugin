@@ -31,18 +31,16 @@ jobs:
     steps:
       # install dependencies
       - name: Install latest Rust stable toolchain
-        shell: bash
         run: |
           rustup toolchain install ${{ env.RUST_VERSION }} --component clippy --component rustfmt
           rustup default ${{ env.RUST_VERSION }}
       - name: "Install Wasm Rust target"
         run: rustup target add wasm32-wasi && rustup target add wasm32-unknown-unknown
-        shell: bash
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "${{ runner.os }}-full-${{ hashFiles('./Cargo.lock') }}"
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Cargo Format
         run:
@@ -62,18 +60,16 @@ jobs:
     steps:
       # install dependencies
       - name: Install latest Rust stable toolchain
-        shell: bash
         run: |
           rustup toolchain install ${{ env.RUST_VERSION }} --component clippy --component rustfmt
           rustup default ${{ env.RUST_VERSION }}
       - name: "Install Wasm Rust target"
         run: rustup target add wasm32-wasi && rustup target add wasm32-unknown-unknown
-        shell: bash
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "${{ runner.os }}-full-${{ hashFiles('./Cargo.lock') }}"
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Cargo Build
         run: cargo build --workspace --release --all-targets --all-features
@@ -90,22 +86,18 @@ jobs:
     steps:
       # install dependencies
       - name: Install latest Rust stable toolchain
-        shell: bash
         run: |
           rustup toolchain install ${{ env.RUST_VERSION }} --component clippy --component rustfmt
           rustup default ${{ env.RUST_VERSION }}
       - name: "Install Wasm Rust target"
         run: rustup target add wasm32-wasi && rustup target add wasm32-unknown-unknown
-        shell: bash
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "${{ runner.os }}-full-${{ hashFiles('./Cargo.lock') }}"
 
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v4
       - name: Cargo Unit Tests
-        run: |
-          cargo test --all --no-fail-fast -- --nocapture
+        run: cargo test --all --no-fail-fast -- --nocapture
         env:
           CARGO_INCREMENTAL: 0
           RUST_LOG: trace
