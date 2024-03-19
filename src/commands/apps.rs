@@ -93,7 +93,7 @@ impl InfoCommand {
         let (current_domain, in_progress_domain) = domains_current_and_in_progress(&app);
 
         println!("Name: {}", &app.name);
-        print_if_present("Description", app.description.as_ref());
+        print_if_present("Description: ", app.description.as_ref());
         print_if_present("URL: https://", current_domain);
         if let Some(domain) = in_progress_domain {
             println!("Validation for {} is in progress", domain);
