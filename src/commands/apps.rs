@@ -104,16 +104,16 @@ impl InfoCommand {
 }
 
 fn domains_current_and_in_progress(app: &AppItem) -> (Option<&String>, Option<&String>) {
-    let auto_domain = app.channels[0].domain.as_ref();
+    let auto_domain = &app.subdomain;
     match &app.domain {
         Some(val) => match val.validation_status {
             ValidationStatus::InProgress | ValidationStatus::Provisioning => {
-                (auto_domain, Some(&val.name))
+                (Some(auto_domain), Some(&val.name))
             }
             ValidationStatus::Ready => (Some(&val.name), None),
-            ValidationStatus::Error => (auto_domain, None),
+            ValidationStatus::Error => (Some(auto_domain), None),
         },
-        None => (auto_domain, None),
+        None => (Some(auto_domain), None),
     }
 }
 
