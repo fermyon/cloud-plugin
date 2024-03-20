@@ -171,7 +171,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cloud
+          name: checksums
           path: checksums-${{ env.RELEASE_VERSION }}.txt
 
       - name: upload checksums to Github release
@@ -190,7 +190,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cloud
+          name: plugin-manifest
           path: cloud.json
 
       - name: upload plugin manifest to release
