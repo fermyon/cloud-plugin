@@ -171,7 +171,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: checksums
+          name: cloud-checksums
           path: checksums-${{ env.RELEASE_VERSION }}.txt
 
       - name: upload checksums to Github release
@@ -190,7 +190,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: plugin-manifest
+          name: cloud-plugin-manifest
           path: cloud.json
 
       - name: upload plugin manifest to release
@@ -212,7 +212,8 @@ jobs:
       - name: download release assets
         uses: actions/download-artifact@v4
         with:
-          name: cloud
+          pattern: cloud-*
+          merge-multiple: true
 
       - name: 'Check if canary tag exists'
         id: canaryExists
