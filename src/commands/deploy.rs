@@ -39,6 +39,10 @@ mod resource;
 const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
 
+// When we come to list features here, you can find consts for them in `spin_locked_app`
+// e.g. spin_locked_app::locked::SERVICE_CHAINING_KEY.
+const CLOUD_SUPPORTED_FEATURES: &[&str] = &[];
+
 /// Package and upload an application to the Fermyon Cloud.
 #[derive(Parser, Debug)]
 #[clap(about = "Package and upload an application to the Fermyon Cloud")]
@@ -355,6 +359,10 @@ impl DeployCommand {
                 "Non-HTTP triggers are not supported - app uses {}",
                 unsupported_triggers.join(", ")
             );
+        }
+
+        if let Err(unsupported) = locked_app.ensure_needs_only(CLOUD_SUPPORTED_FEATURES) {
+            bail!("This app requires features that are not yet available on Fermyon Cloud: {unsupported}");
         }
 
         let locked_app = ensure_http_base_set(locked_app);
