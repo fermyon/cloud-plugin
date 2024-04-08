@@ -504,7 +504,7 @@ dependencies = [
  "cloud-openapi",
  "mime_guess",
  "mockall",
- "reqwest",
+ "reqwest 0.11.27",
  "semver",
  "serde",
  "serde_json",
@@ -519,7 +519,7 @@ name = "cloud-openapi"
 version = "0.1.0"
 source = "git+https://github.com/fermyon/cloud-openapi?rev=b6549ceb60cb329ce994d05f725a6a0b26287bca#b6549ceb60cb329ce994d05f725a6a0b26287bca"
 dependencies = [
- "reqwest",
+ "reqwest 0.11.27",
  "serde",
  "serde_derive",
  "serde_json",
@@ -547,7 +547,7 @@ dependencies = [
  "openssl",
  "rand",
  "regex",
- "reqwest",
+ "reqwest 0.11.27",
  "rpassword",
  "semver",
  "serde",
@@ -803,7 +803,7 @@ dependencies = [
  "mime",
  "pin-project",
  "regex",
- "reqwest",
+ "reqwest 0.11.27",
  "serde",
  "serde_ignored",
  "serde_json",
@@ -1435,6 +1435,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyper-tls"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper 1.2.0",
+ "hyper-util",
+ "native-tls",
+ "tokio",
+ "tokio-native-tls",
+ "tower-service",
+]
+
+[[package]]
+name = "hyper-util"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca38ef113da30126bbff9cd1705f9273e15d45498615d138b0c20279ac7a76aa"
+dependencies = [
+ "bytes",
+ "futures-channel",
+ "futures-util",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "hyper 1.2.0",
+ "pin-project-lite",
+ "socket2 0.5.6",
+ "tokio",
+ "tower",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1800,19 +1836,19 @@ dependencies = [
 
 [[package]]
 name = "oci-distribution"
-version = "0.10.0"
-source = "git+https://github.com/fermyon/oci-distribution?rev=63cbb0925775e0c9c870195cad1d50ac8707a264#63cbb0925775e0c9c870195cad1d50ac8707a264"
+version = "0.11.0"
+source = "git+https://github.com/fermyon/oci-distribution?rev=7e4ce9be9bcd22e78a28f06204931f10c44402ba#7e4ce9be9bcd22e78a28f06204931f10c44402ba"
 dependencies = [
  "bytes",
  "chrono",
  "futures-util",
- "http 0.2.12",
+ "http 1.1.0",
  "http-auth",
  "jwt",
  "lazy_static",
  "olpc-cjson",
  "regex",
- "reqwest",
+ "reqwest 0.12.2",
  "serde",
  "serde_json",
  "sha2",
@@ -1922,12 +1958,12 @@ dependencies = [
 
 [[package]]
 name = "outbound-http"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "anyhow",
  "http 0.2.12",
- "reqwest",
+ "reqwest 0.11.27",
  "spin-locked-app",
  "spin-outbound-networking",
  "terminal",
@@ -2269,7 +2305,7 @@ dependencies = [
  "http 0.2.12",
  "http-body 0.4.6",
  "hyper 0.14.28",
- "hyper-tls",
+ "hyper-tls 0.5.0",
  "ipnet",
  "js-sys",
  "log",
@@ -2285,6 +2321,47 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "system-configuration",
+ "tokio",
+ "tokio-native-tls",
+ "tokio-util 0.7.10",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-streams",
+ "web-sys",
+ "winreg",
+]
+
+[[package]]
+name = "reqwest"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d66674f2b6fb864665eea7a3c1ac4e3dfacd2fda83cf6f935a612e01b0e3338"
+dependencies = [
+ "base64 0.21.7",
+ "bytes",
+ "futures-core",
+ "futures-util",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
+ "hyper 1.2.0",
+ "hyper-tls 0.6.0",
+ "hyper-util",
+ "ipnet",
+ "js-sys",
+ "log",
+ "mime",
+ "native-tls",
+ "once_cell",
+ "percent-encoding",
+ "pin-project-lite",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sync_wrapper",
  "tokio",
  "tokio-native-tls",
  "tokio-util 0.7.10",
@@ -2595,8 +2672,8 @@ dependencies = [
 
 [[package]]
 name = "spin-common"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "anyhow",
  "dirs 4.0.0",
@@ -2608,8 +2685,8 @@ dependencies = [
 
 [[package]]
 name = "spin-expressions"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2622,8 +2699,8 @@ dependencies = [
 
 [[package]]
 name = "spin-http"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "anyhow",
  "http 1.1.0",
@@ -2638,8 +2715,8 @@ dependencies = [
 
 [[package]]
 name = "spin-loader"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2654,7 +2731,7 @@ dependencies = [
  "outbound-http",
  "path-absolutize",
  "regex",
- "reqwest",
+ "reqwest 0.11.27",
  "semver",
  "serde",
  "serde_json",
@@ -2676,8 +2753,8 @@ dependencies = [
 
 [[package]]
 name = "spin-locked-app"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2690,8 +2767,8 @@ dependencies = [
 
 [[package]]
 name = "spin-manifest"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "anyhow",
  "indexmap 1.9.3",
@@ -2705,8 +2782,8 @@ dependencies = [
 
 [[package]]
 name = "spin-oci"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -2716,8 +2793,9 @@ dependencies = [
  "dkregistry",
  "docker_credential",
  "futures-util",
+ "itertools 0.12.1",
  "oci-distribution",
- "reqwest",
+ "reqwest 0.11.27",
  "serde",
  "serde_json",
  "spin-common",
@@ -2733,8 +2811,8 @@ dependencies = [
 
 [[package]]
 name = "spin-outbound-networking"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "anyhow",
  "http 1.1.0",
@@ -2748,8 +2826,8 @@ dependencies = [
 
 [[package]]
 name = "spin-serde"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "base64 0.21.7",
  "serde",
@@ -2894,8 +2972,8 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "2.4.0-pre0"
-source = "git+https://github.com/fermyon/spin?rev=a400e3fe702694a042e4c9de814445b0f99daef4#a400e3fe702694a042e4c9de814445b0f99daef4"
+version = "2.5.0-pre0"
+source = "git+https://github.com/fermyon/spin?rev=86a58771091c02eaf40b5395a2a6bc711740f038#86a58771091c02eaf40b5395a2a6bc711740f038"
 dependencies = [
  "atty",
  "once_cell",
@@ -3085,6 +3163,28 @@ dependencies = [
  "toml_datetime",
  "winnow",
 ]
+
+[[package]]
+name = "tower"
+version = "0.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
+dependencies = [
+ "futures-core",
+ "futures-util",
+ "pin-project",
+ "pin-project-lite",
+ "tokio",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tower-layer"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c20c8dbed6283a09604c3e69b4b7eeb54e298b8a600d4d5ecb5ad39de609f1d0"
 
 [[package]]
 name = "tower-service"

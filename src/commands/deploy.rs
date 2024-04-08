@@ -460,13 +460,15 @@ impl DeployCommand {
         let oci_ref = Reference::try_from(reference.as_ref())
             .context(format!("Could not parse reference '{reference}'"))?;
 
-        client.insert_token(
-            &oci_ref,
-            RegistryOperation::Push,
-            token_cache::RegistryTokenType::Bearer(token_cache::RegistryToken::Token {
-                token: connection_config.token,
-            }),
-        );
+        client
+            .insert_token(
+                &oci_ref,
+                RegistryOperation::Push,
+                token_cache::RegistryTokenType::Bearer(token_cache::RegistryToken::Token {
+                    token: connection_config.token,
+                }),
+            )
+            .await;
 
         println!(
             "Uploading {} version {} to Fermyon Cloud...",
