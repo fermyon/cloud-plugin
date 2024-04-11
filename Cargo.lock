@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "cloud"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -530,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "cloud-plugin"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",
