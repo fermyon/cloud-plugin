@@ -20,7 +20,7 @@ concurrency: ${{ github.workflow }}
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: 1.73
+  RUST_VERSION: 1.74
 
 jobs:
   build:
@@ -76,20 +76,23 @@ jobs:
               targetDir: "target/release",
             }
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        shell: bash
+      # install dependencies
+      - name: Install latest Rust stable toolchain
         run: |
-          rustup toolchain install ${{ env.RUST_VERSION }}
+          rustup toolchain install ${{ env.RUST_VERSION }} --component clippy --component rustfmt --no-self-update
           rustup default ${{ env.RUST_VERSION }}
+      - name: "Install Wasm Rust target"
+        run: rustup target add wasm32-wasi --toolchain ${{ env.RUST_VERSION }} && rustup target add wasm32-unknown-unknown --toolchain ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "${{ runner.os }}-full-${{ hashFiles('./Cargo.lock') }}"
 
-      - name: Install target
+      - name: Install cross-compilation target
         if: matrix.config.target != ''
         shell: bash
         run: rustup target add --toolchain ${{ env.RUST_VERSION }} ${{ matrix.config.target }}
 
-      - name: "Install Wasm Rust target"
-        run: rustup target add wasm32-wasi --toolchain ${{ env.RUST_VERSION }} && rustup target add wasm32-unknown-unknown --toolchain ${{ env.RUST_VERSION }}
+      - uses: actions/checkout@v4
 
       - name: set the release version (main)
         shell: bash
