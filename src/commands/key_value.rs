@@ -156,7 +156,7 @@ impl CreateCommand {
             .create_key_value_store(&self.name, None)
             .await
             .with_context(|| format!("Error creating key value store '{}'", self.name))?;
-        println!(r#"Key value store  "{}" created"#, self.name);
+        println!(r#"Key value store "{}" created"#, self.name);
         Ok(())
     }
 }
