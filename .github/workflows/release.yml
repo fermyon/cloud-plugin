@@ -20,7 +20,7 @@ concurrency: ${{ github.workflow }}
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: 1.74
+  RUST_VERSION: 1.76
 
 jobs:
   build:

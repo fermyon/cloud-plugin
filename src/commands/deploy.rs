@@ -7,7 +7,7 @@ use cloud::{
 };
 use oci_distribution::{token_cache, Reference, RegistryOperation};
 use spin_common::arg_parser::parse_kv;
-use spin_http::{app_info::AppInfo, routes::RoutePattern};
+use spin_http::{app_info::AppInfo, config::HttpTriggerRouteConfig, routes::Router};
 use spin_locked_app::locked;
 use tokio::fs;
 use tracing::instrument;
@@ -292,8 +292,8 @@ impl DeployCommand {
             .context("Problem getting app by id")?;
 
         let app_base_url = build_app_base_url(&app.subdomain, &login_connection.url)?;
-        let (http_base, http_routes) = application.http_routes();
-        if !http_routes.is_empty() {
+        let (http_base, http_router) = application.http_routes()?;
+        if http_router.routes().next().is_some() {
             wait_for_ready(
                 &app_base_url,
                 &digest.unwrap_or_default(),
@@ -301,8 +301,8 @@ impl DeployCommand {
                 Destination::Cloud(connection_config.clone().url),
             )
             .await;
-            let base = http_base.unwrap_or_else(|| "/".to_owned());
-            print_available_routes(&name, &app_base_url, &base, &http_routes);
+            let base = http_base.unwrap_or("/");
+            print_available_routes(&application, &name, &app_base_url, base, &http_router);
         } else {
             println!("Application is running at {}", app.subdomain);
         }
@@ -475,7 +475,7 @@ impl DeployCommand {
             &oci_ref.repository(),
             &oci_ref.tag().unwrap_or(application.version()?)
         );
-        let digest = client.push_locked(application.0, reference).await?;
+        let digest = client.push_locked(application.0, reference, None).await?;
 
         Ok(digest)
     }
@@ -641,43 +641,43 @@ impl DeployableApp {
             .collect()
     }
 
-    fn http_routes(&self) -> (Option<String>, Vec<HttpRoute>) {
+    fn http_routes(&self) -> anyhow::Result<(Option<&str>, Router)> {
         let base = self
             .0
             .metadata
             .get("trigger")
             .and_then(|v| v.get("base"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_owned());
+            .and_then(|v| v.as_str());
         let routes = self
             .0
             .triggers
             .iter()
             .filter_map(|t| self.http_route(t))
-            .collect();
-        (base, routes)
+            .collect::<Vec<_>>();
+        let routes = routes.iter().map(|(id, route)| (id.as_str(), route));
+        let (router, _) = Router::build(base.unwrap_or("/"), routes)?;
+
+        Ok((base, router))
     }
 
-    fn http_route(&self, trigger: &locked::LockedTrigger) -> Option<HttpRoute> {
+    fn http_route(
+        &self,
+        trigger: &locked::LockedTrigger,
+    ) -> Option<(String, HttpTriggerRouteConfig)> {
         if &trigger.trigger_type != "http" {
             return None;
         }
 
-        let Some(id) = trigger
+        let id = trigger
             .trigger_config
             .get("component")
-            .and_then(|v| v.as_str())
-        else {
-            return None;
-        };
+            .and_then(|v| v.as_str())?;
 
-        let description = self.component_description(id).map(|s| s.to_owned());
-        let route = trigger.trigger_config.get("route").and_then(|v| v.as_str());
-        route.map(|r| HttpRoute {
-            id: id.to_owned(),
-            description,
-            route_pattern: r.to_owned(),
-        })
+        let route = trigger
+            .trigger_config
+            .get("route")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())?;
+        Some((id.to_owned(), route))
     }
 
     fn component_description(&self, id: &str) -> Option<&str> {
@@ -687,13 +687,6 @@ impl DeployableApp {
             .find(|c| c.id == id)
             .and_then(|c| c.metadata.get("description").and_then(|v| v.as_str()))
     }
-}
-
-#[derive(Debug)]
-struct HttpRoute {
-    id: String,
-    description: Option<String>,
-    route_pattern: String,
 }
 
 impl DeployableComponent {
@@ -815,7 +808,13 @@ async fn is_ready(app_info_url: &str, expected_version: &str) -> Result<bool> {
     Ok(true)
 }
 
-fn print_available_routes(app_name: &str, app_base_url: &Url, base: &str, routes: &[HttpRoute]) {
+fn print_available_routes(
+    app: &DeployableApp,
+    app_name: &str,
+    app_base_url: &Url,
+    base: &str,
+    router: &Router,
+) {
     // Strip any trailing slash from base URL
     let app_base_url = app_base_url.to_string();
     let route_prefix = app_base_url.strip_suffix('/').unwrap_or(&app_base_url);
@@ -833,12 +832,14 @@ fn print_available_routes(app_name: &str, app_base_url: &Url, base: &str, routes
     println!();
     println!("View application:   {app_root_url}");
 
-    if routes.iter().any(|r| r.route_pattern != "/...") {
+    if router
+        .routes()
+        .any(|(route, _)| route.to_string() != " (wildcard)")
+    {
         println!("  Routes:");
-        for component in routes {
-            let route = RoutePattern::from(&base, &component.route_pattern);
-            println!("  - {}: {}{}", component.id, route_prefix, route);
-            if let Some(description) = &component.description {
+        for (route, component_id) in router.routes() {
+            println!("  - {}: {}{}", component_id, route_prefix, route);
+            if let Some(description) = app.component_description(component_id) {
                 println!("    {}", description);
             }
         }
