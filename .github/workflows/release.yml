@@ -137,14 +137,6 @@ jobs:
             name: cloud-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}
             path: _dist/cloud-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
 
-      - name: upload binary to Github release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: _dist/cloud-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
-          tag: ${{ github.ref }}
-
   checksums_and_manifests:
     name: generate checksums and manifest
     runs-on: ubuntu-latest
@@ -177,14 +169,6 @@ jobs:
           name: cloud-checksums
           path: checksums-${{ env.RELEASE_VERSION }}.txt
 
-      - name: upload checksums to Github release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: checksums-${{ env.RELEASE_VERSION }}.txt
-          tag: ${{ github.ref }}
-
       - name: create plugin manifest
         shell: bash
         env:
@@ -196,19 +180,12 @@ jobs:
           name: cloud-plugin-manifest
           path: cloud.json
 
-      - name: upload plugin manifest to release
-        uses: svenstaro/upload-release-action@v2
-        if: startsWith(github.ref, 'refs/tags/v')
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: cloud.json
-          tag: ${{ github.ref }}
-
-  reset_canary_release:
-    name: Delete and create Canary Release
+  create-gh-release:
+    name: create GitHub release
     runs-on: ubuntu-latest
     needs: checksums_and_manifests
-    if: github.ref == 'refs/heads/main'
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -216,34 +193,24 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: cloud-*
+          path: _dist
           merge-multiple: true
 
-      - name: 'Check if canary tag exists'
-        id: canaryExists
-        shell: bash
+      - name: create GitHub release (canary)
+        if: github.ref == 'refs/heads/main'
         run: |
-          git fetch --prune --unshallow --tags
-          git show-ref --tags --verify --quiet -- "refs/tags/canary" && \
-          echo "canaryExists=0" >> "$GITHUB_OUTPUT" || \
-          echo "canaryExists=1" >> "$GITHUB_OUTPUT"
-
-      - name: Delete canary tag
-        if: steps.canaryExists.outputs.canaryExists == 0
-        uses: dev-drprasad/delete-tag-and-release@v0.2.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: canary
-          delete_release: true
-
-      - name: Recreate canary tag and release
-        uses: ncipollo/release-action@v1.14.0
-        with:
-          tag: canary
-          allowUpdates: true
-          prerelease: true
-          artifacts: "cloud*.tar.gz,cloud.json,checksums-canary.txt"
-          commit: ${{ github.sha }}
-          body: |
+          gh release delete canary --cleanup-tag
+          gh release create canary _dist/* \
+            --title canary \
+            --prerelease \
+            --notes-file - <<- EOF
             This is a "canary" release of the most recent commits on our main branch. Canary is **not stable**.
             It is only intended for developers wishing to try out the latest features in cloud plugin, some of which may not be fully implemented.
+          EOF
+
+      - name: create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release create ${{ github.ref_name }} _dist/* \
+            --title ${{ github.ref_name }} \
+            --generate-notes
