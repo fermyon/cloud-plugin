@@ -292,7 +292,7 @@ impl DeployCommand {
             .context("Problem getting app by id")?;
 
         let app_base_url = build_app_base_url(&app.subdomain, &login_connection.url)?;
-        let (http_base, http_router) = application.http_routes()?;
+        let (http_base, http_router, _) = application.http_routes()?;
         if http_router.routes().next().is_some() {
             wait_for_ready(
                 &app_base_url,
@@ -592,7 +592,29 @@ fn sanitize_app_version(tag: &str) -> String {
 fn validate_cloud_app(app: &DeployableApp) -> Result<()> {
     check_safe_app_name(app.name()?)?;
     ensure!(!app.components().is_empty(), "No components in spin.toml!");
+    check_no_duplicate_routes(app)?;
     Ok(())
+}
+
+fn check_no_duplicate_routes(app: &DeployableApp) -> Result<()> {
+    let (_, _, duplicates) = app.http_routes()?;
+    if duplicates.is_empty() {
+        Ok(())
+    } else {
+        let messages: Vec<_> = duplicates
+            .iter()
+            .map(|dr| {
+                format!(
+                    "- Route '{}' appears in components '{}' and '{}'",
+                    dr.route(),
+                    dr.effective_id,
+                    dr.replaced_id
+                )
+            })
+            .collect();
+        let message = format!("This application contains duplicate routes, which are not allowed in Fermyon Cloud.\n{}", messages.join("\n"));
+        bail!(message)
+    }
 }
 
 #[derive(Clone)]
@@ -641,7 +663,9 @@ impl DeployableApp {
             .collect()
     }
 
-    fn http_routes(&self) -> anyhow::Result<(Option<&str>, Router)> {
+    fn http_routes(
+        &self,
+    ) -> anyhow::Result<(Option<&str>, Router, Vec<spin_http::routes::DuplicateRoute>)> {
         let base = self
             .0
             .metadata
@@ -655,9 +679,9 @@ impl DeployableApp {
             .filter_map(|t| self.http_route(t))
             .collect::<Vec<_>>();
         let routes = routes.iter().map(|(id, route)| (id.as_str(), route));
-        let (router, _) = Router::build(base.unwrap_or("/"), routes)?;
+        let (router, duplicates) = Router::build(base.unwrap_or("/"), routes)?;
 
-        Ok((base, router))
+        Ok((base, router, duplicates))
     }
 
     fn http_route(
