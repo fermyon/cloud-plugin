@@ -33,10 +33,7 @@ impl AppInfo {
         domain: Option<String>,
         domain_validation_finished: bool,
     ) -> Self {
-        let url = match &domain {
-            Some(d) => Some(format!("https://{}", d)),
-            None => None,
-        };
+        let url = domain.as_ref().map(|d| format!("https://{}", d));
         let desc: Option<String> = match description {
             Some(d) => match d.is_empty() {
                 true => None,
@@ -88,7 +85,7 @@ pub(crate) fn print_app_list(apps: Vec<String>, format: Option<OutputFormat>) {
 pub(crate) fn print_app_info(app: AppInfo, format: Option<OutputFormat>) {
     match format {
         Some(OutputFormat::Json) => {
-            print!("{}\n", serde_json::to_string_pretty(&app).unwrap())
+            println!("{}", serde_json::to_string_pretty(&app).unwrap())
         }
         _ => print!("{}", app),
     };
