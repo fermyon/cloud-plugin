@@ -12,8 +12,7 @@ pub(crate) enum OutputFormat {
 #[derive(Serialize)]
 pub(crate) struct AppInfo {
     name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    description: String,
     url: Option<String>,
     #[serde(rename = "domainInfo")]
     domain_info: DomainInfo,
@@ -34,16 +33,9 @@ impl AppInfo {
         domain_validation_finished: bool,
     ) -> Self {
         let url = domain.as_ref().map(|d| format!("https://{}", d));
-        let desc: Option<String> = match description {
-            Some(d) => match d.is_empty() {
-                true => None,
-                false => Some(d),
-            },
-            None => None,
-        };
         Self {
             name,
-            description: desc,
+            description: description.unwrap_or_default(),
             url,
             domain_info: DomainInfo {
                 domain,
@@ -56,15 +48,10 @@ impl AppInfo {
 impl Display for AppInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Name: {}", self.name)?;
-        if self
-            .description
-            .as_ref()
-            .is_some_and(|desc| !desc.is_empty())
-        {
-            writeln!(f, "Description: {}", self.description.clone().unwrap())?;
+        if !self.description.is_empty() {
+            writeln!(f, "Description: {}", self.description)?;
         }
-        if self.domain_info.domain.is_some() {
-            let domain = self.domain_info.domain.clone().unwrap();
+        if let Some(domain) = self.domain_info.domain.as_ref() {
             writeln!(f, "URL: https://{}", domain)?;
             if !self.domain_info.validation_finished {
                 writeln!(f, "Validation for {} is in progress", domain)?;
