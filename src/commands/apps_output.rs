@@ -77,7 +77,13 @@ impl Display for AppInfo {
 pub(crate) fn print_app_list(apps: Vec<String>, format: OutputFormat) {
     match format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&apps).unwrap()),
-        OutputFormat::Plain => println!("{}", apps.join("\n")),
+        OutputFormat::Plain => {
+            if apps.is_empty() {
+                eprintln!("No applications found");
+                return;
+            }
+            println!("{}", apps.join("\n"))
+        }
     }
 }
 
