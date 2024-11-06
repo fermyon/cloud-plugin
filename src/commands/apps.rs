@@ -22,8 +22,8 @@ pub struct ListCommand {
     #[clap(flatten)]
     common: CommonArgs,
     /// Desired output format
-    #[clap(value_enum, long = "format")]
-    format: Option<OutputFormat>,
+    #[clap(value_enum, long = "format", default_value = "plain")]
+    format: OutputFormat,
 }
 
 #[derive(Parser, Debug)]
@@ -41,8 +41,8 @@ pub struct InfoCommand {
     #[clap(flatten)]
     common: CommonArgs,
     /// Desired output format
-    #[clap(value_enum, long = "format")]
-    format: Option<OutputFormat>,
+    #[clap(value_enum, long = "format", default_value = "plain")]
+    format: OutputFormat,
 }
 
 impl AppsCommand {

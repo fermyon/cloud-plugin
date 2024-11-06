@@ -74,19 +74,16 @@ impl Display for AppInfo {
     }
 }
 
-pub(crate) fn print_app_list(apps: Vec<String>, format: Option<OutputFormat>) {
-    let info = match format {
-        Some(OutputFormat::Json) => serde_json::to_string_pretty(&apps).unwrap(),
-        _ => apps.join("\n"),
-    };
-    println!("{}", info);
+pub(crate) fn print_app_list(apps: Vec<String>, format: OutputFormat) {
+    match format {
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&apps).unwrap()),
+        OutputFormat::Plain => println!("{}", apps.join("\n")),
+    }
 }
 
-pub(crate) fn print_app_info(app: AppInfo, format: Option<OutputFormat>) {
+pub(crate) fn print_app_info(app: AppInfo, format: OutputFormat) {
     match format {
-        Some(OutputFormat::Json) => {
-            println!("{}", serde_json::to_string_pretty(&app).unwrap())
-        }
-        _ => print!("{}", app),
-    };
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&app).unwrap()),
+        OutputFormat::Plain => print!("{}", app),
+    }
 }
