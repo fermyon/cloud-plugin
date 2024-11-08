@@ -1,4 +1,5 @@
 pub mod apps;
+pub mod apps_output;
 pub mod deploy;
 pub mod key_value;
 pub mod link;
