@@ -23,7 +23,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: 1.76
+  RUST_VERSION: "1.80"
 jobs:
   lint-rust:
     name: Lint Rust
