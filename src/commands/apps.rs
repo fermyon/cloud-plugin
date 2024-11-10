@@ -1,8 +1,10 @@
-use crate::commands::{client_and_app_id, create_cloud_client, CommonArgs};
+use crate::commands::{apps_output::AppInfo, client_and_app_id, create_cloud_client, CommonArgs};
 use anyhow::{Context, Result};
 use clap::Parser;
 use cloud::{CloudClientInterface, DEFAULT_APPLIST_PAGE_SIZE};
-use cloud_openapi::models::{AppItem, AppItemPage, ValidationStatus};
+use cloud_openapi::models::{AppItem, ValidationStatus};
+
+use super::apps_output::{print_app_info, print_app_list, OutputFormat};
 
 #[derive(Parser, Debug)]
 #[clap(about = "Manage applications deployed to Fermyon Cloud")]
@@ -19,6 +21,9 @@ pub enum AppsCommand {
 pub struct ListCommand {
     #[clap(flatten)]
     common: CommonArgs,
+    /// Desired output format
+    #[clap(value_enum, long = "format", default_value = "plain")]
+    format: OutputFormat,
 }
 
 #[derive(Parser, Debug)]
@@ -35,6 +40,9 @@ pub struct InfoCommand {
     pub app: String,
     #[clap(flatten)]
     common: CommonArgs,
+    /// Desired output format
+    #[clap(value_enum, long = "format", default_value = "plain")]
+    format: OutputFormat,
 }
 
 impl AppsCommand {
@@ -51,19 +59,21 @@ impl ListCommand {
     pub async fn run(self) -> Result<()> {
         let client = create_cloud_client(self.common.deployment_env_id.as_deref()).await?;
         let mut app_list_page = client.list_apps(DEFAULT_APPLIST_PAGE_SIZE, None).await?;
-        if app_list_page.total_items <= 0 {
-            eprintln!("No applications found");
-        } else {
-            print_app_list(&app_list_page);
-            let mut page_index = 1;
-            while !app_list_page.is_last_page {
-                app_list_page = client
-                    .list_apps(DEFAULT_APPLIST_PAGE_SIZE, Some(page_index))
-                    .await?;
-                print_app_list(&app_list_page);
-                page_index += 1;
-            }
+        let mut apps: Vec<String> = vec![];
+        let mut page_index = 1;
+        for app in app_list_page.items {
+            apps.push(app.name.clone());
         }
+        while !app_list_page.is_last_page {
+            app_list_page = client
+                .list_apps(DEFAULT_APPLIST_PAGE_SIZE, Some(page_index))
+                .await?;
+            for app in app_list_page.items {
+                apps.push(app.name.clone());
+            }
+            page_index += 1;
+        }
+        print_app_list(apps, self.format);
         Ok(())
     }
 }
@@ -92,13 +102,14 @@ impl InfoCommand {
 
         let (current_domain, in_progress_domain) = domains_current_and_in_progress(&app);
 
-        println!("Name: {}", &app.name);
-        print_if_present("Description: ", app.description.as_ref());
-        print_if_present("URL: https://", current_domain);
-        if let Some(domain) = in_progress_domain {
-            println!("Validation for {} is in progress", domain);
-        };
+        let info = AppInfo::new(
+            app.name.clone(),
+            app.description.clone(),
+            current_domain.cloned(),
+            in_progress_domain.is_none(),
+        );
 
+        print_app_info(info, self.format);
         Ok(())
     }
 }
@@ -114,19 +125,5 @@ fn domains_current_and_in_progress(app: &AppItem) -> (Option<&String>, Option<&S
             ValidationStatus::Error => (Some(auto_domain), None),
         },
         None => (Some(auto_domain), None),
-    }
-}
-
-fn print_if_present(prefix: &str, value: Option<&String>) {
-    if let Some(val) = value {
-        if !val.is_empty() {
-            println!("{prefix}{val}");
-        }
-    }
-}
-
-fn print_app_list(page: &AppItemPage) {
-    for app in &page.items {
-        println!("{}", app.name);
     }
 }
