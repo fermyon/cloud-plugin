@@ -600,7 +600,6 @@ fn validate_cloud_app(app: &DeployableApp) -> Result<()> {
     check_safe_app_name(app.name()?)?;
     ensure!(!app.components().is_empty(), "No components in spin.toml!");
     check_no_duplicate_routes(app)?;
-    check_no_dependencies(app)?;
     Ok(())
 }
 
@@ -622,25 +621,6 @@ fn check_no_duplicate_routes(app: &DeployableApp) -> Result<()> {
             .collect();
         let message = format!("This application contains duplicate routes, which are not allowed in Fermyon Cloud.\n{}", messages.join("\n"));
         bail!(message)
-    }
-}
-
-fn check_no_dependencies(app: &DeployableApp) -> Result<()> {
-    let dep_messages: Vec<_> = app
-        .components()
-        .iter()
-        .flat_map(|c| {
-            c.dependencies()
-                .iter()
-                .map(|d| format!("- Dependency '{d}' appears in component '{}'", c.name()))
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    if dep_messages.is_empty() {
-        Ok(())
-    } else {
-        Err(anyhow!("This application uses component dependencies, which are not supported on Fermyon Cloud\n{}", dep_messages.join("\n")))
     }
 }
 
@@ -760,14 +740,6 @@ impl DeployableComponent {
             .filter_map(|v| v.as_str())
             .map(|s| s.to_owned())
             .collect()
-    }
-
-    fn dependencies(&self) -> Vec<String> {
-        self.0.dependencies.keys().map(|n| n.to_string()).collect()
-    }
-
-    fn name(&self) -> &str {
-        &self.0.id
     }
 }
 
