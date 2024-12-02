@@ -33,13 +33,13 @@ semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.82"
 sha2 = "0.10.2"
-spin-common = { git = "https://github.com/fermyon/spin", rev = "94c5b55188c8a0f6e59e0e229ef6799f4dc4e99e" }
-spin-loader = { git = "https://github.com/fermyon/spin", rev = "94c5b55188c8a0f6e59e0e229ef6799f4dc4e99e" }
-spin-locked-app = { git = "https://github.com/fermyon/spin", rev = "94c5b55188c8a0f6e59e0e229ef6799f4dc4e99e" }
-spin-http = { git = "https://github.com/fermyon/spin", rev = "94c5b55188c8a0f6e59e0e229ef6799f4dc4e99e", default-features = false }
-spin-manifest = { git = "https://github.com/fermyon/spin", rev = "94c5b55188c8a0f6e59e0e229ef6799f4dc4e99e" }
-spin-oci = { git = "https://github.com/fermyon/spin", rev = "94c5b55188c8a0f6e59e0e229ef6799f4dc4e99e" }
-terminal = { git = "https://github.com/fermyon/spin", rev = "94c5b55188c8a0f6e59e0e229ef6799f4dc4e99e" }
+spin-common = { git = "https://github.com/fermyon/spin", rev = "666faa988b82c44f8491280937777612c8a669b4" }
+spin-loader = { git = "https://github.com/fermyon/spin", rev = "666faa988b82c44f8491280937777612c8a669b4" }
+spin-locked-app = { git = "https://github.com/fermyon/spin", rev = "666faa988b82c44f8491280937777612c8a669b4" }
+spin-http = { git = "https://github.com/fermyon/spin", rev = "666faa988b82c44f8491280937777612c8a669b4", default-features = false }
+spin-manifest = { git = "https://github.com/fermyon/spin", rev = "666faa988b82c44f8491280937777612c8a669b4" }
+spin-oci = { git = "https://github.com/fermyon/spin", rev = "666faa988b82c44f8491280937777612c8a669b4" }
+terminal = { git = "https://github.com/fermyon/spin", rev = "666faa988b82c44f8491280937777612c8a669b4" }
 tempfile = "3.3.0"
 url = { version = "2.3", features = ["serde"] }
 uuid = { version = "1.3", features = ["v4"] }
