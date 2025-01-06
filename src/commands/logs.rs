@@ -42,7 +42,7 @@ pub struct LogsCommand {
 
     /// Only return logs newer than a relative duration. The duration format is a number
     /// and a unit, where the unit is 's' for seconds, 'm' for minutes, 'h' for hours
-    /// or 'd' for days (e.g. "30m" for 30 minutes ago).  The default it 7 days.
+    /// or 'd' for days (e.g. "30m" for 30 minutes ago).  The default is 7 days.
     #[clap(parse(try_from_str = parse_duration), name="since", long="since", default_value = "7d")]
     pub since: std::time::Duration,
 
