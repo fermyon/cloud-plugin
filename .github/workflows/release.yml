@@ -31,7 +31,7 @@ jobs:
       matrix:
         config:
           - {
-              os: "ubuntu-20.04",
+              os: "ubuntu-22.04",
               arch: "amd64",
               wasiSDK: "linux",
               extension: "",
@@ -40,7 +40,7 @@ jobs:
               targetDir: "target/release",
             }
           - {
-            os: "ubuntu-20.04",
+            os: "ubuntu-22.04",
             arch: "aarch64",
             wasiSDK: "linux",
             extension: "",
