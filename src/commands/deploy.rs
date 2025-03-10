@@ -9,6 +9,7 @@ use oci_distribution::{token_cache, Reference, RegistryOperation};
 use spin_common::arg_parser::parse_kv;
 use spin_http::{app_info::AppInfo, config::HttpTriggerRouteConfig, routes::Router};
 use spin_locked_app::locked;
+use spin_oci::ComposeMode;
 use tokio::fs;
 use tracing::instrument;
 
@@ -475,12 +476,15 @@ impl DeployCommand {
             &oci_ref.repository(),
             &oci_ref.tag().unwrap_or(application.version()?)
         );
+        // Leave apps uncomposed to enable the Cloud host to deduplicate components.
+        let compose_mode = ComposeMode::Skip;
         let digest = client
             .push_locked(
                 application.0,
                 reference,
                 None,
                 spin_oci::client::InferPredefinedAnnotations::None,
+                compose_mode,
             )
             .await?;
 
