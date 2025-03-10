@@ -9,6 +9,7 @@ use oci_distribution::{token_cache, Reference, RegistryOperation};
 use spin_common::arg_parser::parse_kv;
 use spin_http::{app_info::AppInfo, config::HttpTriggerRouteConfig, routes::Router};
 use spin_locked_app::locked;
+use spin_oci::ComposeMode;
 use tokio::fs;
 use tracing::instrument;
 
@@ -475,12 +476,15 @@ impl DeployCommand {
             &oci_ref.repository(),
             &oci_ref.tag().unwrap_or(application.version()?)
         );
+        // Leave apps uncomposed to enable the Cloud host to deduplicate components.
+        let compose_mode = ComposeMode::Skip;
         let digest = client
             .push_locked(
                 application.0,
                 reference,
                 None,
                 spin_oci::client::InferPredefinedAnnotations::None,
+                compose_mode,
             )
             .await?;
 
@@ -574,10 +578,11 @@ fn check_safe_app_name(name: &str) -> Result<()> {
 // The path consists of slash-separated components. Each component may contain lowercase letters, digits and separators.
 // A separator is defined as a period, one or two underscores, or one or more hyphens. A component may not start or end with a separator.
 fn sanitize_app_name(name: &str) -> String {
+    let trim_chars = ['.', '_', '-'];
     name.to_ascii_lowercase()
         .replace(' ', "")
-        .trim_start_matches(|c: char| c == '.' || c == '_' || c == '-')
-        .trim_end_matches(|c: char| c == '.' || c == '_' || c == '-')
+        .trim_start_matches(trim_chars)
+        .trim_end_matches(trim_chars)
         .to_string()
 }
 
@@ -586,9 +591,7 @@ fn sanitize_app_name(name: &str) -> String {
 // A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and hyphens.
 // A tag name may not start with a period or a hyphen and may contain a maximum of 128 characters.
 fn sanitize_app_version(tag: &str) -> String {
-    let mut sanitized = tag
-        .trim()
-        .trim_start_matches(|c: char| c == '.' || c == '-');
+    let mut sanitized = tag.trim().trim_start_matches(['.', '-']);
 
     if sanitized.len() > 128 {
         (sanitized, _) = sanitized.split_at(128);
