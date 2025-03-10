@@ -578,10 +578,11 @@ fn check_safe_app_name(name: &str) -> Result<()> {
 // The path consists of slash-separated components. Each component may contain lowercase letters, digits and separators.
 // A separator is defined as a period, one or two underscores, or one or more hyphens. A component may not start or end with a separator.
 fn sanitize_app_name(name: &str) -> String {
+    let trim_chars = ['.', '_', '-'];
     name.to_ascii_lowercase()
         .replace(' ', "")
-        .trim_start_matches(|c: char| c == '.' || c == '_' || c == '-')
-        .trim_end_matches(|c: char| c == '.' || c == '_' || c == '-')
+        .trim_start_matches(trim_chars)
+        .trim_end_matches(trim_chars)
         .to_string()
 }
 
@@ -590,9 +591,7 @@ fn sanitize_app_name(name: &str) -> String {
 // A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and hyphens.
 // A tag name may not start with a period or a hyphen and may contain a maximum of 128 characters.
 fn sanitize_app_version(tag: &str) -> String {
-    let mut sanitized = tag
-        .trim()
-        .trim_start_matches(|c: char| c == '.' || c == '-');
+    let mut sanitized = tag.trim().trim_start_matches(['.', '-']);
 
     if sanitized.len() > 128 {
         (sanitized, _) = sanitized.split_at(128);
