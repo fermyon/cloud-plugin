@@ -40,6 +40,13 @@ mod resource;
 const DEVELOPER_CLOUD_FAQ: &str = "https://developer.fermyon.com/cloud/faq";
 const SPIN_DEFAULT_KV_STORE: &str = "default";
 
+/// The amount of time a token must have remaining before expiry for us to be
+/// confident it will last long enough to complete a deploy operation. That is,
+/// if a token is closer than this to expiration when we start a deploy
+/// operation, we should refresh it pre-emptively so that it's unlikely to expire
+/// while the operation is in progress.
+const TOKEN_MUST_HAVE_REMAINING: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
+
 // When we come to list features here, you can find consts for them in `spin_locked_app`
 // e.g. spin_locked_app::locked::SERVICE_CHAINING_KEY.
 const CLOUD_SUPPORTED_FEATURES: &[&str] = &[];
@@ -882,12 +889,17 @@ fn print_available_routes(
     println!("Manage application: {admin_url}");
 }
 
-// Check if the token has expired.
-// If the expiration is None, assume the token has not expired
-fn has_expired(login_connection: &LoginConnection) -> Result<bool> {
+// Check if the token has expired - or is so close to expiring that we
+// aren't confident it will last long enough to complete a deploy!
+// If the expiration is None, assume the token is current and will last long enough.
+fn needs_renewal(login_connection: &LoginConnection) -> Result<bool> {
     match &login_connection.expiration {
         Some(expiration) => match DateTime::parse_from_rfc3339(expiration) {
-            Ok(time) => Ok(Utc::now() > time),
+            Ok(time) => {
+                let time = time.to_utc();
+                let token_time_remaining = time - Utc::now();
+                Ok(token_time_remaining < TOKEN_MUST_HAVE_REMAINING)
+            }
             Err(err) => Err(anyhow!(
                 "Failed to parse token expiration time '{}'. Error: {}",
                 expiration,
@@ -926,7 +938,7 @@ pub async fn login_connection(deployment_env_id: Option<&str>) -> Result<LoginCo
     };
 
     let mut login_connection: LoginConnection = serde_json::from_str(&data)?;
-    let expired = match has_expired(&login_connection) {
+    let expired = match needs_renewal(&login_connection) {
         Ok(val) => val,
         Err(err) => {
             eprintln!("{}\n", err);
