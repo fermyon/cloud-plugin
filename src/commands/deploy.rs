@@ -7,7 +7,7 @@ use cloud::{
 };
 use oci_distribution::{token_cache, Reference, RegistryOperation};
 use spin_common::arg_parser::parse_kv;
-use spin_http::{app_info::AppInfo, config::HttpTriggerRouteConfig, routes::Router};
+use spin_http::{app_info::AppInfo, routes::HttpTriggerRouteConfig, routes::Router};
 use spin_locked_app::locked;
 use spin_oci::ComposeMode;
 use tokio::fs;
@@ -369,7 +369,7 @@ impl DeployCommand {
             );
         }
 
-        if let Err(unsupported) = locked_app.ensure_needs_only(CLOUD_SUPPORTED_FEATURES) {
+        if let Err(unsupported) = locked_app.ensure_needs_only("http", CLOUD_SUPPORTED_FEATURES) {
             bail!("This app requires features that are not yet available on Fermyon Cloud: {unsupported}");
         }
 
@@ -696,7 +696,8 @@ impl DeployableApp {
             .filter_map(|t| self.http_route(t))
             .collect::<Vec<_>>();
         let routes = routes.iter().map(|(id, route)| (id.as_str(), route));
-        let (router, duplicates) = Router::build(base.unwrap_or("/"), routes)?;
+        let mut duplicates = Vec::new();
+        let router = Router::build(base.unwrap_or("/"), routes, Some(&mut duplicates))?;
 
         Ok((base, router, duplicates))
     }
