@@ -61,5 +61,5 @@ fn disallow_empty(statement: &str) -> anyhow::Result<String> {
     if statement.trim().is_empty() {
         anyhow::bail!("cannot be empty");
     }
-    return Ok(statement.trim().to_owned());
+    Ok(statement.trim().to_owned())
 }
