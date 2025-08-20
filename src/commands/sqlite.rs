@@ -65,8 +65,9 @@ pub struct ExecuteCommand {
     #[clap(name = "APP", short = 'a', long = "app", value_parser = clap::builder::ValueParser::new(disallow_empty), requires = "LABEL", conflicts_with = "DATABASE")]
     app: Option<String>,
 
-    ///Statement to execute
-    #[clap(value_parser = clap::builder::ValueParser::new(disallow_empty))]
+    /// The SQLite statement to run against the database.
+    /// To run from a file, prefix the filename with @ e.g. spin cloud sqlite execute @migration.sql
+    #[clap(name = "SQL", value_parser = clap::builder::ValueParser::new(disallow_empty))]
     statement: String,
 
     #[clap(flatten)]
